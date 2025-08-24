@@ -17,4 +17,4 @@ A modular, standalone Go library for dynamic media transcoding and adaptive stre
 
 ## Getting Started
 ```bash
-go get github.com/dotsoulja/dotgotranscode
+go get github.com/dotsoulja/dotgo-transcode
