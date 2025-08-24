@@ -1,0 +1,41 @@
+package main
+
+import (
+	"fmt"
+	"log"
+	"path/filepath"
+
+	"github.com/dotsoulja/dotgo-transcode/internal/analyzer"
+)
+
+func main() {
+	files := []string{
+		"media/thelostboys.mp4",
+		"media/1917.mp4",
+		"media/hondo.mp4",
+		"media/legendofthelost.mp4",
+	}
+
+	for _, f := range files {
+		absPath, err := filepath.Abs(f)
+		if err != nil {
+			log.Printf("❌ Failed to resolve path for %s: %v\n", f, err)
+			continue
+		}
+
+		info, err := analyzer.AnalyzeMedia(absPath)
+		if err != nil {
+			log.Printf("❌ Error analyzing %s: %v\n", f, err)
+			continue
+		}
+
+		fmt.Printf("🎬 File: %s\n", f)
+		fmt.Printf("  Duration: %.2f seconds\n", info.Duration)
+		fmt.Printf("  Resolution: %dx%d\n", info.Width, info.Height)
+		fmt.Printf("  Video Codec: %s\n", info.VideoCodec)
+		fmt.Printf("  Audio Codec: %s\n", info.AudioCodec)
+		fmt.Printf("  Bitrate: %d kbps\n", info.Bitrate)
+		fmt.Printf("  Keyframes: %v\n", info.Keyframes)
+		fmt.Println()
+	}
+}

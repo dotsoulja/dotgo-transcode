@@ -38,6 +38,7 @@
 # Profiles, configs, and secrets
 profiles/*.json
 profiles/*.yaml
+profiles/*.yml
 .env
 .env.*
 
@@ -46,6 +47,7 @@ cache/
 segments/
 thumbnails/
 previews/
+media/
 
 # Node or python (if used for tooling/scripts)
 node_modules/
