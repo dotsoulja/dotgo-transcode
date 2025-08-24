@@ -1,0 +1,57 @@
+# Go build artifacts
+*.exe
+*.out
+*.test
+/build/
+/bin/
+/dist/
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# VS Code settings
+.vscode/
+*.code-workspace
+
+# Swap and temp files
+*.swp
+*.tmp
+*.log
+
+# Media artifacts - generated or cached
+*.ts
+*.m3u8
+*.mpd
+*.mp4
+*.mkv
+*.webm
+*.aac
+*.wav
+*.jpg
+*.png
+*.webp
+*.srt
+*.vtt
+
+# Profiles, configs, and secrets
+profiles/*.json
+profiles/*.yaml
+.env
+.env.*
+
+# Transcoding cache or previews
+cache/
+segments/
+thumbnails/
+previews/
+
+# Node or python (if used for tooling/scripts)
+node_modules/
+__pycache__/
+*.pyc
+
+# Misc
+*.bak
+*.orig
