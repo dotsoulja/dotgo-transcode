@@ -72,6 +72,7 @@ Understanding the source file is essential before deciding how to transcode it. 
       Codec     string
       Bitrate   int
       Keyframes []float64
+  }
   ```
 - Log results for forensic clarity.
 
