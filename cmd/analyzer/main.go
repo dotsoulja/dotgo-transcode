@@ -35,6 +35,8 @@ func main() {
 		fmt.Printf("  Video Codec: %s\n", info.VideoCodec)
 		fmt.Printf("  Audio Codec: %s\n", info.AudioCodec)
 		fmt.Printf("  Bitrate: %d kbps\n", info.Bitrate)
+		fmt.Printf("  Framerate: %.3f fps\n", info.Framerate)
+		fmt.Printf("  Keyframe Interval: %.3f frames\n", info.KeyframeInterval)
 		fmt.Printf("  Keyframes: %v\n", info.Keyframes)
 		fmt.Println()
 	}
