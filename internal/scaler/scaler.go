@@ -6,8 +6,8 @@ import (
 	"github.com/dotsoulja/dotgo-transcode/internal/analyzer"
 )
 
-// SelectResolutions returns a list of resolution presets suitable for the given media source.
-// It uses client context and source dimensions to filter and prioritize presets.
+// SelectResolutions filters resolution presets based on source media and client context.
+// Applies bandwidth filtering, device preferences, and upscaling rules.
 func SelectResolutions(media *analyzer.MediaInfo, ctx *ClientContext) ([]ResolutionPreset, error) {
 	var selected []ResolutionPreset
 

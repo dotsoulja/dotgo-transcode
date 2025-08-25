@@ -6,8 +6,8 @@ import (
 	"fmt"
 )
 
-// ScalerError is the base error type for all scaler-related failures.
-// It wraps a message and optionally an underlying cause.
+// ScalerError wraps errors that occur during resolution selection or scaling.
+// Provides contextual clarity for debugging and fallback logic.
 type ScalerError struct {
 	Op  string // Operation or context where the error occurred (e.g. "selectPreset")
 	Msg string // Human-readable error message

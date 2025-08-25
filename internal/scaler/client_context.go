@@ -3,7 +3,7 @@
 package scaler
 
 // ClientContext provides environmental cues for resolution selection.
-// This struct is optional but enables adaptive logic based on client capabilities.
+// Enables adaptive logic based on client capabilities and preferences.
 type ClientContext struct {
 	DeviceType    string // e.g. "mobile", "desktop", "tv"
 	BandwidthKbps int    // Estimated available bandwidth in kbps
