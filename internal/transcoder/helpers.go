@@ -11,6 +11,7 @@ import (
 )
 
 // validatePaths checks that input and output paths are accessible.
+// Creates the output directory if it doesn't exist
 func validatePaths(input, output string) error {
 	if _, err := os.Stat(input); err != nil {
 		return fmt.Errorf("input path invalid: %w", err)
@@ -23,6 +24,7 @@ func validatePaths(input, output string) error {
 
 // buildFFmpegCommand constructs the ffmpeg command for a given resolution.
 // It generates a unique output filename based on input file name, resolution, and bitrate.
+// Falls back to default bitrate if parsing fails.
 func buildFFmpegCommand(profile *TranscodeProfile, res string) []string {
 	// Extract base name from input file
 	base := strings.TrimSuffix(filepath.Base(profile.InputPath), filepath.Ext(profile.InputPath))
@@ -30,20 +32,23 @@ func buildFFmpegCommand(profile *TranscodeProfile, res string) []string {
 
 	// Parse bitrate string to int
 	bitrateStr := profile.Bitrate[res]
-	bitrateInt, err := strconv.Atoi(bitrateStr)
-	if err != nil {
-		log.Printf("Invalid bitrate for resolution %s: %s", res, bitrateStr)
-		bitrateInt = 0 // fallback to 0 if parsing fails
+	bitrateInt := parseBitrateKbps(bitrateStr)
+
+	if bitrateInt == 0 {
+		log.Printf("⚠️ Bitrate parsing failed for resolution %s: %q. Using fallback bitrate.", res, bitrateStr)
+		bitrateStr = "2000k"
+		bitrateInt = 2000
 	}
 
-	// Build unique output filename
-	outputFilename := fmt.Sprintf("%s_%sp_%dkbps.%s", safeBase, res, bitrateInt/1000, profile.Container)
+	outputFilename := fmt.Sprintf("%s_%s_%dkbps.%s", safeBase, res, bitrateInt, profile.Container)
 	outputPath := filepath.Join(profile.OutputDir, outputFilename)
+
+	log.Printf("🔧 Building ffmpeg command for %s (%dkbps)", res, bitrateInt)
 
 	return []string{
 		"ffmpeg",
 		"-i", profile.InputPath,
-		"-vf", fmt.Sprintf("scale=-2:%s", res),
+		"-vf", fmt.Sprintf("scale=-2:%s", strings.TrimSuffix(res, "p")),
 		"-c:v", profile.VideoCodec,
 		"-b:v", bitrateStr,
 		"-c:a", profile.AudioCodec,
@@ -51,9 +56,25 @@ func buildFFmpegCommand(profile *TranscodeProfile, res string) []string {
 	}
 }
 
+// parseBitrateKbps converts a bitrate string like "3000k" to an integer in kbps.
+// Returns 0 if parsing fails.
+func parseBitrateKbps(bitrate string) int {
+	bitrate = strings.ToLower(strings.TrimSpace(bitrate))
+	bitrate = strings.TrimSuffix(bitrate, "k")
+	if bitrate == "" {
+		return 0
+	}
+	val, err := strconv.Atoi(bitrate)
+	if err != nil {
+		return 0
+	}
+	return val
+}
+
 // runCommand executes a shell command using os/exec.
-// This is a placeholder for real subprocess logic with stderr capture.
+// Logs the command and returns any execution error.
 func runCommand(cmd []string) error {
+	log.Printf("🚀 Executing command: %s", strings.Join(cmd, " "))
 	execCmd := exec.Command(cmd[0], cmd[1:]...)
 	execCmd.Stdout = nil
 	execCmd.Stderr = nil

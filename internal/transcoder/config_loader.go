@@ -87,6 +87,9 @@ func applyDefaults(p *TranscodeProfile) {
 	if p.AudioCodec == "" {
 		p.AudioCodec = "aac" // Default to AAC for optimal browser compatibility
 	}
+	if p.Bitrate == nil {
+		p.Bitrate = make(map[string]string)
+	}
 }
 
 // validateProfile performs basic sanity checks on required fields.
@@ -98,7 +101,7 @@ func validateProfile(p TranscodeProfile) error {
 	if p.OutputDir == "" {
 		return fmt.Errorf("missing output_dir")
 	}
-	if len(p.TargetRes) == 0 {
+	if len(p.Resolutions) == 0 {
 		return fmt.Errorf("target_res must include at least one resolution")
 	}
 	if p.VideoCodec == "" {

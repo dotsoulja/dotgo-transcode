@@ -3,32 +3,34 @@ package transcoder
 import "fmt"
 
 // ConfigError represents an error during config loading or validation.
+// It wraps the operation, file path, and underlying error for forensic clarity.
 type ConfigError struct {
-	Op   string // e.g. "read", "unmarshal", "validate"
+	Op   string // Operation context e.g. "read", "unmarshal", "validate"
 	Path string // file path involved
 	Err  error  // underlying error
 }
 
+// Error returns a formatted string representation of the ConfigError
 func (e *ConfigError) Error() string {
 	return fmt.Sprintf("config error [%s] on %q: %v", e.Op, e.Path, e.Err)
 }
 
+// Unwrap returns the underlying error for compatibility with errors.Is/As.
 func (e *ConfigError) Unwrap() error {
 	return e.Err
 }
 
 // TranscoderError wraps errors that occur during the transcoding process.
-// This is a robust error type to dial in what is going on when the error occurs.
 // It provides detailed context for debugging and logging across pipeline stages.
 type TranscoderError struct {
-	Stage      string   // e.g. "validation", "command_build", "execution"
-	Operation  string   // e.g. "scale", "segment", "mux"
-	InputPath  string   // media file involved
-	OutputPath string   // target output (dir or file)
-	Command    []string // ffmpeg or other command attempted
-	ExitCode   int      // if available from exec
-	Message    string   // human-readable summary
-	Err        error    // underlying error
+	Stage      string   // High-level stage (e.g. "validation", "execution")
+	Operation  string   // Specific operation (e.g. "scale", "segment", "mux")
+	InputPath  string   // Source media file
+	OutputPath string   // Target output (dir or file)
+	Command    []string // Command attempted (e.g. ffmpeg args)
+	ExitCode   int      // Exit code from subprocess, if available
+	Message    string   // Human-readable summary of the error
+	Err        error    // Underlying error
 }
 
 // Error returns a formatted string representation of the TranscoderError
@@ -44,7 +46,8 @@ func (e *TranscoderError) Unwrap() error {
 	return e.Err
 }
 
-// NewTranscoderError creates a new TranscoderError with full context
+// NewTranscoderError creates a new TranscoderError with full context.
+// This is the preferred constructor for wrapping errors during transcoding.
 func NewTranscoderError(stage, operation, input, output, msg string, cmd []string, code int, err error) *TranscoderError {
 	return &TranscoderError{
 		Stage:      stage,

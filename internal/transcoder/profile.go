@@ -1,11 +1,11 @@
 package transcoder
 
 // TranscodeProfile defines the parameters for a transcoding session.
-// Loaded from JSON/YAML configs in profiles/, this struct drives the pipeline.
+// It supports resolution-specific bitrates and modular codec/container choices.
 type TranscodeProfile struct {
 	InputPath     string            `json:"input_path" yaml:"input_path"`                       // Path to source media
 	OutputDir     string            `json:"output_dir" yaml:"output_dir"`                       // Where to write output
-	TargetRes     []string          `json:"target_res" yaml:"target_res"`                       // e.g. ["1080p", "720p"]
+	Resolutions   []string          `json:"target_res" yaml:"target_res"`                       // e.g. ["1080p", "720p"]
 	AudioCodec    string            `json:"audio_codec,omitempty" yaml:"audio_codec,omitempty"` // Optional: "aac", "copy"
 	VideoCodec    string            `json:"video_codec" yaml:"video_codec"`                     // e.g. "h264", "vp9"
 	Bitrate       map[string]string `json:"bitrate" yaml:"bitrate"`                             // e.g. {"1080p": "5000k"}

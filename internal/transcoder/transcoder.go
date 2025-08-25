@@ -1,10 +1,12 @@
 package transcoder
 
 import (
+	"fmt"
 	"log"
 	"strings"
 
 	"github.com/dotsoulja/dotgo-transcode/internal/analyzer"
+	"github.com/dotsoulja/dotgo-transcode/internal/scaler"
 )
 
 // Transcode orchestrates the transcoding process for a given media file.
@@ -30,28 +32,52 @@ func Transcode(profile *TranscodeProfile, media *analyzer.MediaInfo) (*Transcode
 		Success:   true,
 	}
 
+	// Track which variants have already been processed to avoid duplicates
+	seen := make(map[string]bool)
+
 	// Iterate over each target resolution defined in the profile
-	for _, res := range profile.TargetRes {
+	for _, res := range profile.Resolutions {
 		cmd := buildFFmpegCommand(profile, res)
 
-		log.Printf("Transcoding to %s: %s", res, strings.Join(cmd, " "))
+		// Extract output filename from command (last arg)
+		outputPath := cmd[len(cmd)-1]
+		filename := outputPath[strings.LastIndex(outputPath, "/")+1:]
+
+		// Prevent duplicate variants by resolution + bitrate
+		key := fmt.Sprintf("%s_%s", res, profile.Bitrate[res])
+		if seen[key] {
+			log.Printf("⚠️ Skipping duplicate variant: %s", key)
+			continue
+		}
+		seen[key] = true
+
+		log.Printf("🎞️ Transcoding to %s: %s", res, strings.Join(cmd, " "))
 
 		// Execute the ffmpeg command and capture error/exit code
 		if err := runCommand(cmd); err != nil {
 			result.Success = false
 			result.Errors = append(result.Errors, NewTranscoderError(
-				"execution", "transcode", profile.InputPath, profile.OutputDir,
+				"execution", "transcode", profile.InputPath, outputPath,
 				"ffmpeg command failed", cmd, 1, err,
 			))
 			continue
 		}
 
+		// Lookup actual resolution dimensions from scaler
+		width, height, err := scaler.DimensionsForLabel(res)
+		if err != nil {
+			log.Printf("⚠️ Unknown resolution label: %s - using source dimensions", res)
+			width = media.Width
+			height = media.Height
+		}
+
 		// Append successful variant metadata
 		result.Variants = append(result.Variants, ResolutionVariant{
-			Width:     media.Width,  // placeholder - can be scaled later
-			Height:    media.Height, // placeholder - canbe scaled later
-			Bitrate:   profile.Bitrate[res],
-			ScaleFlag: "auto",
+			Width:          width,
+			Height:         height,
+			Bitrate:        profile.Bitrate[res],
+			ScaleFlag:      "auto",
+			OutputFilename: filename,
 		})
 	}
 

@@ -2,13 +2,16 @@
 // This file contains hints about playback environment, device type, and network conditions.
 package scaler
 
-// ClientContext provides environmental cues for resolution selection.
-// Enables adaptive logic based on client capabilities and preferences.
+// ClientContext represents the playback environment and client capabilities.
+// It is used to guide resolution selection and adaptive scaling.
 type ClientContext struct {
-	DeviceType    string // e.g. "mobile", "desktop", "tv"
-	BandwidthKbps int    // Estimated available bandwidth in kbps
-	PreferUpscale bool   // Whether the client prefers upscaling over downscaling
-	AllowLowRes   bool   // Whether the client accepts resolutions below 480p
+	DeviceType      string // e.g. "mobile", "desktop", "tv"
+	BandwidthKbps   int    // Current estimated bandwidth in Kbps
+	PreferUpscale   bool   // If true, prefers higher resolution even if bandwidth is borderline
+	AllowLowRes     bool   // If false, restricts resolution below a certain threshold
+	ManualOverride  string // If set, forces a specific resolution (e.g. "720p")
+	RecentFailures  int    // Number of recent playback stalls or buffering events
+	AdaptiveEnabled bool   // Enables dynamic resolution switching
 }
 
 // IsMobile returns true if the device is mobile
