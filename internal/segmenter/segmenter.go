@@ -1,6 +1,3 @@
-// Package segmenter orchestrates the segmentation phase of the transcoding pipeline.
-// It takes transcoded variants and slices them into HLS or DASH-compatible segments.
-// This file exposes the high-level SegmentMedia function used by downstream workflows.
 package segmenter
 
 import (
@@ -8,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/dotsoulja/dotgo-transcode/internal/executil"
 	"github.com/dotsoulja/dotgo-transcode/internal/transcoder"
@@ -34,44 +32,49 @@ func SegmentMedia(result *transcoder.TranscodeResult, format string) (*SegmentRe
 		Success:   true,
 	}
 
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
 	for _, variant := range result.Variants {
-		// Input file: media/output/<slug>/<slug>_<resolution>_<bitrate>.mp4
-		inputPath := filepath.Join(result.OutputDir, variant.OutputFilename)
+		wg.Add(1)
+		go func(variant transcoder.ResolutionVariant) {
+			defer wg.Done()
 
-		// Resolution label derived from filename (e.g. "720p")
-		label := LabelFromFilename(variant.OutputFilename)
+			inputPath := filepath.Join(result.OutputDir, variant.OutputFilename)
+			label := LabelFromFilename(variant.OutputFilename)
+			outputDir := filepath.Join(result.OutputDir, label)
 
-		// Output directory for segments: media/output/<slug>/<label>/
-		outputDir := filepath.Join(result.OutputDir, label)
+			if err := os.MkdirAll(outputDir, os.ModePerm); err != nil {
+				mu.Lock()
+				segResult.Success = false
+				segResult.Errors = append(segResult.Errors, *NewSegmenterError(
+					"filesystem", fmt.Sprintf("failed to create segment dir for %s", label), err,
+				))
+				mu.Unlock()
+				return
+			}
 
-		// Ensure resolution-specific directory exists
-		if err := os.MkdirAll(outputDir, os.ModePerm); err != nil {
-			segResult.Success = false
-			segResult.Errors = append(segResult.Errors, *NewSegmenterError(
-				"filesystem", fmt.Sprintf("failed to create segment dir for %s", label), err,
-			))
-			continue
-		}
+			manifestName := fmt.Sprintf("%s.%s", label, manifestExtension(format))
+			manifestPath := filepath.Join(outputDir, manifestName)
+			cmd := buildSegmentCommand(inputPath, outputDir, manifestName, format)
 
-		// Manifest filename: <label>.m3u8 or <label>.mpd
-		manifestName := fmt.Sprintf("%s.%s", label, manifestExtension(format))
-		manifestPath := filepath.Join(outputDir, manifestName)
+			log.Printf("📦 Segmenting %s into %s format", variant.OutputFilename, format)
+			if err := executil.RunCommand(cmd); err != nil {
+				mu.Lock()
+				segResult.Success = false
+				segResult.Errors = append(segResult.Errors, *NewSegmenterError(
+					"segment", fmt.Sprintf("failed to segment %s", variant.OutputFilename), err,
+				))
+				mu.Unlock()
+				return
+			}
 
-		// Build ffmpeg command for segmentation
-		cmd := buildSegmentCommand(inputPath, outputDir, manifestName, format)
-
-		log.Printf("📦 Segmenting %s into %s format", variant.OutputFilename, format)
-		if err := executil.RunCommand(cmd); err != nil {
-			segResult.Success = false
-			segResult.Errors = append(segResult.Errors, *NewSegmenterError(
-				"segment", fmt.Sprintf("failed to segment %s", variant.OutputFilename), err,
-			))
-			continue
-		}
-
-		// Track successful manifest path
-		segResult.Manifests = append(segResult.Manifests, manifestPath)
+			mu.Lock()
+			segResult.Manifests = append(segResult.Manifests, manifestPath)
+			mu.Unlock()
+		}(variant)
 	}
 
+	wg.Wait()
 	return segResult, nil
 }

@@ -22,7 +22,6 @@ func LoadProfile(filename string) (*TranscodeProfile, error) {
 		}
 	}
 
-	// Determine file extension and validate supported formats
 	ext := strings.ToLower(filepath.Ext(filename))
 	if ext != ".json" && ext != ".yaml" && ext != ".yml" {
 		return nil, &ConfigError{
@@ -32,10 +31,7 @@ func LoadProfile(filename string) (*TranscodeProfile, error) {
 		}
 	}
 
-	// Construct full path to the config file
 	path := filepath.Join("profiles", filename)
-
-	// Read file contents
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, &ConfigError{
@@ -45,7 +41,6 @@ func LoadProfile(filename string) (*TranscodeProfile, error) {
 		}
 	}
 
-	// Unmarshal into TranscodeProfile based on file format
 	var profile TranscodeProfile
 	switch ext {
 	case ".json":
@@ -66,10 +61,8 @@ func LoadProfile(filename string) (*TranscodeProfile, error) {
 		}
 	}
 
-	// Apply default values to optional fields
 	applyDefaults(&profile)
 
-	// Validate required fields and structural integrity
 	if err := validateProfile(profile); err != nil {
 		return nil, &ConfigError{
 			Op:   "validate",
@@ -82,10 +75,9 @@ func LoadProfile(filename string) (*TranscodeProfile, error) {
 }
 
 // applyDefaults sets fallback values for optional fields in the TranscodeProfile.
-// This ensures browser-friendly behavior and avoids nil references downstream.
 func applyDefaults(p *TranscodeProfile) {
 	if p.AudioCodec == "" {
-		p.AudioCodec = "aac" // Default to AAC for optimal browser compatibility
+		p.AudioCodec = "aac"
 	}
 	if p.Bitrate == nil {
 		p.Bitrate = make(map[string]string)
@@ -93,7 +85,6 @@ func applyDefaults(p *TranscodeProfile) {
 }
 
 // validateProfile performs basic sanity checks on required fields.
-// Returns a plain error to be wrapped by the caller for contextual reporting.
 func validateProfile(p TranscodeProfile) error {
 	if p.InputPath == "" {
 		return fmt.Errorf("missing input_path")

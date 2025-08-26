@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os/exec"
+	"sync"
 )
 
 // AnalyzeMedia orchestrates metadata extraction for a given media file.
@@ -77,20 +78,42 @@ func AnalyzeMedia(path string) (*MediaInfo, error) {
 		}
 	}
 
-	// Extract framerate from video stream
-	if fr, err := extractFramerate(path); err == nil {
-		info.Framerate = fr
-	} else {
-		logDebug("extractFramerate failed", "", err)
-	}
+	// Extract framerate and keyframes concurrently
+	var wg sync.WaitGroup
+	var mu sync.Mutex
 
-	// Extract keyframe timestamps and calculate interval
-	if kf, interval, err := extractKeyframes(path); err == nil {
-		info.Keyframes = kf
-		info.KeyframeInterval = interval
-	} else {
-		logDebug("extractKeyframes failed", "", err)
-	}
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		if fr, err := extractFramerate(path); err == nil {
+			mu.Lock()
+			info.Framerate = fr
+			mu.Unlock()
+		} else {
+			logDebug("extractFramerate failed", "", err)
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		if kf, interval, err := extractKeyframes(path); err == nil {
+			mu.Lock()
+			info.Keyframes = kf
+			info.KeyframeInterval = interval
+			mu.Unlock()
+		} else {
+			logDebug("extractKeyframes failed", "", err)
+		}
+	}()
+
+	wg.Wait()
 
 	return info, nil
+}
+
+// AnalyzeMediaConcurrent is an alias for AnalyzeMedia with concurrency support.
+// This function is retained for semantic clarity and future expansion.
+func AnalyzeMediaConcurrent(path string) (*MediaInfo, error) {
+	return AnalyzeMedia(path)
 }

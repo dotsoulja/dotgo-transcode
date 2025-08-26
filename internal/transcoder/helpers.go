@@ -5,12 +5,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 )
 
 // validatePaths checks that input and output paths are accessible.
-// Creates the output directory if it doesn't exist
+// Creates the output directory if it doesn't exist.
 func validatePaths(input, output string) error {
 	if _, err := os.Stat(input); err != nil {
 		return fmt.Errorf("input path invalid: %w", err)
@@ -22,17 +23,13 @@ func validatePaths(input, output string) error {
 }
 
 // buildFFmpegCommand constructs the ffmpeg command for a given resolution.
-// It generates a unique output filename based on input file name, resolution, and bitrate.
-// Falls back to default bitrate if parsing fails.
+// It conditionally injects hardware acceleration flags based on platform and profile.
 func buildFFmpegCommand(profile *TranscodeProfile, res string) []string {
-	// Extract base name from input file
 	base := strings.TrimSuffix(filepath.Base(profile.InputPath), filepath.Ext(profile.InputPath))
 	safeBase := strings.ReplaceAll(base, " ", "_")
 
-	// Parse bitrate string to int
 	bitrateStr := profile.Bitrate[res]
 	bitrateInt := parseBitrateKbps(bitrateStr)
-
 	if bitrateInt == 0 {
 		log.Printf("⚠️ Bitrate parsing failed for resolution %s: %q. Using fallback bitrate.", res, bitrateStr)
 		bitrateStr = "2000k"
@@ -42,13 +39,18 @@ func buildFFmpegCommand(profile *TranscodeProfile, res string) []string {
 	outputFilename := fmt.Sprintf("%s_%s_%dkbps.%s", safeBase, res, bitrateInt, profile.Container)
 	outputPath := filepath.Join(profile.OutputDir, outputFilename)
 
-	log.Printf("🔧 Building ffmpeg command for %s (%dkbps)", res, bitrateInt)
+	// Determine video codec based on profile and platform
+	videoCodec := profile.VideoCodec
+	if profile.UseHardwareAccel && isMacOS() && strings.EqualFold(videoCodec, "h264") {
+		videoCodec = "h264_videotoolbox"
+		log.Printf("🍎 Using VideoToolbox hardware acceleration for %s", res)
+	}
 
 	return []string{
 		"ffmpeg",
 		"-i", profile.InputPath,
 		"-vf", fmt.Sprintf("scale=-2:%s", strings.TrimSuffix(res, "p")),
-		"-c:v", profile.VideoCodec,
+		"-c:v", videoCodec,
 		"-b:v", bitrateStr,
 		"-c:a", profile.AudioCodec,
 		outputPath,
@@ -56,7 +58,6 @@ func buildFFmpegCommand(profile *TranscodeProfile, res string) []string {
 }
 
 // parseBitrateKbps converts a bitrate string like "3000k" to an integer in kbps.
-// Returns 0 if parsing fails.
 func parseBitrateKbps(bitrate string) int {
 	bitrate = strings.ToLower(strings.TrimSpace(bitrate))
 	bitrate = strings.TrimSuffix(bitrate, "k")
@@ -68,4 +69,9 @@ func parseBitrateKbps(bitrate string) int {
 		return 0
 	}
 	return val
+}
+
+// isMacOS returns true if the current platform is macOS.
+func isMacOS() bool {
+	return strings.Contains(strings.ToLower(runtime.GOOS), "darwin")
 }
