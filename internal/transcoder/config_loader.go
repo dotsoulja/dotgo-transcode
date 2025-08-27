@@ -12,7 +12,7 @@ import (
 )
 
 // LoadProfile loads a TranscodeProfile from a JSON or YAML file in the profiles/ directory.
-// It infers format from file extension and unmarshals into a validated TranscodeProfile.
+// Infers format from file extension and unmarshals into a validated TranscodeProfile.
 // Returns a fully populated profile or a wrapped ConfigError with operation details.
 func LoadProfile(filename string) (*TranscodeProfile, error) {
 	if filename == "" {
@@ -23,6 +23,7 @@ func LoadProfile(filename string) (*TranscodeProfile, error) {
 		}
 	}
 
+	// Infer file format from extension
 	ext := strings.ToLower(filepath.Ext(filename))
 	if ext != ".json" && ext != ".yaml" && ext != ".yml" {
 		return nil, &ConfigError{
@@ -32,7 +33,10 @@ func LoadProfile(filename string) (*TranscodeProfile, error) {
 		}
 	}
 
+	// Construct full path to profile file
 	path := filepath.Join("profiles", filename)
+
+	// Read file contents
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, &ConfigError{
@@ -43,6 +47,8 @@ func LoadProfile(filename string) (*TranscodeProfile, error) {
 	}
 
 	var profile TranscodeProfile
+
+	// Unmarshal based on format
 	switch ext {
 	case ".json":
 		if err := json.Unmarshal(data, &profile); err != nil {
@@ -62,8 +68,10 @@ func LoadProfile(filename string) (*TranscodeProfile, error) {
 		}
 	}
 
+	// Apply fallback values for optional fields
 	applyDefaults(&profile)
 
+	// Validate required fields and log segment length behavior
 	if err := validateProfile(profile); err != nil {
 		return nil, &ConfigError{
 			Op:   "validate",
@@ -76,6 +84,7 @@ func LoadProfile(filename string) (*TranscodeProfile, error) {
 }
 
 // applyDefaults sets fallback values for optional fields in the TranscodeProfile.
+// Ensures audio codec and bitrate map are initialized.
 func applyDefaults(p *TranscodeProfile) {
 	if p.AudioCodec == "" {
 		p.AudioCodec = "aac"
@@ -86,6 +95,7 @@ func applyDefaults(p *TranscodeProfile) {
 }
 
 // validateProfile performs basic sanity checks on required fields.
+// Logs segment length behavior and returns error if any required field is missing.
 func validateProfile(p TranscodeProfile) error {
 	if p.InputPath == "" {
 		return fmt.Errorf("missing input_path")
@@ -103,7 +113,7 @@ func validateProfile(p TranscodeProfile) error {
 		return fmt.Errorf("missing container format")
 	}
 
-	// Validate and interpret segment length
+	// Interpret segment length behavior
 	switch {
 	case p.SegmentLength < 0:
 		return fmt.Errorf("segment_length must be zero or a positive integer")

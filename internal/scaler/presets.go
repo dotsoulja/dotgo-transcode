@@ -6,6 +6,18 @@ package scaler
 // These are used as candidates during scaling decisions.
 var StandardPresets = []ResolutionPreset{
 	{
+		Width:      3840,
+		Height:     2160,
+		Label:      "2160p",
+		MinBitrate: 12000,
+	},
+	{
+		Width:      2560,
+		Height:     1440,
+		Label:      "1440p",
+		MinBitrate: 8000,
+	},
+	{
 		Width:      1920,
 		Height:     1080,
 		Label:      "1080p",

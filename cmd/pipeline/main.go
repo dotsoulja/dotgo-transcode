@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/dotsoulja/dotgo-transcode/internal/analyzer"
 	"github.com/dotsoulja/dotgo-transcode/internal/manifester"
@@ -12,16 +13,16 @@ import (
 )
 
 func main() {
+	start := time.Now()
+
 	profileName := "sample_profile.json"
-	inputMovie := "media/thelostboys.mp4"
 	streamFormat := "hls" // or "dash"
 
-	// Load profile
+	// Load transcode profile
 	profile, err := transcoder.LoadProfile(profileName)
 	if err != nil {
 		log.Fatalf("❌ Failed to load profile: %v", err)
 	}
-	profile.InputPath = inputMovie
 
 	fmt.Println("\n🎬 Loaded TranscodeProfile:")
 	fmt.Printf("   📁 InputPath:     %s\n", profile.InputPath)
@@ -33,7 +34,7 @@ func main() {
 	fmt.Printf("   📐 TargetRes:     %v\n", profile.Resolutions)
 	fmt.Printf("   📊 Bitrate:       %v\n", profile.Bitrate)
 
-	// Analyze media
+	// Analyze input media once (shared across pipeline)
 	media, err := analyzer.AnalyzeMedia(profile.InputPath)
 	if err != nil {
 		log.Fatalf("❌ Failed to analyze media: %v", err)
@@ -41,7 +42,7 @@ func main() {
 	fmt.Printf("\n🧠 MediaInfo: Duration=%.2fs, Width=%d, Height=%d, Bitrate=%dkbps\n",
 		media.Duration, media.Width, media.Height, media.Bitrate)
 
-	// Client context (no simulation)
+	// Define client context for resolution selection
 	ctx := scaler.ClientContext{
 		DeviceType:      "desktop",
 		BandwidthKbps:   6000,
@@ -50,14 +51,14 @@ func main() {
 		AdaptiveEnabled: true,
 	}
 
-	// Initial resolution selection
+	// Select initial resolution preset based on media and context
 	initialPreset, err := scaler.SelectPreset(media.Width, media.Height, &ctx)
 	if err != nil {
 		log.Fatalf("❌ Failed to select initial resolution: %v", err)
 	}
 	fmt.Printf("\n🚀 Initial resolution selected: %s\n", initialPreset.Preset.LabelWithDimensions())
 
-	// Transcode
+	// Transcode media into adaptive variants
 	fmt.Println("\n🎞️ Starting transcoding...")
 	result, err := transcoder.Transcode(profile, media)
 	if err != nil {
@@ -76,9 +77,9 @@ func main() {
 		}
 	}
 
-	// Segment
+	// Segment each variant using shared MediaInfo
 	fmt.Println("\n✂️ Starting segmentation...")
-	segResult, err := segmenter.SegmentMedia(result, streamFormat)
+	segResult, err := segmenter.SegmentMedia(result, streamFormat, media)
 	if err != nil {
 		log.Fatalf("❌ Segmentation failed: %v", err)
 	}
@@ -94,7 +95,7 @@ func main() {
 		}
 	}
 
-	// Manifest
+	// Generate master manifest from segmented variants
 	fmt.Println("\n🧾 Generating master manifest...")
 	manifestPath, err := manifester.GenerateMasterManifest(segResult)
 	if err != nil {
@@ -102,4 +103,11 @@ func main() {
 	}
 	fmt.Printf("📜 Master manifest generated at: %s\n", manifestPath)
 
+	// Final summary
+	fmt.Println("\n📦 Final Report")
+	fmt.Printf("   🎞️ Input: %s\n", profile.InputPath)
+	fmt.Printf("   📐 Variants: %d\n", len(result.Variants))
+	fmt.Printf("   📄 Manifests: %d\n", len(segResult.Manifests))
+	fmt.Printf("   ⚠️ Errors: %d\n", len(result.Errors)+len(segResult.Errors))
+	fmt.Printf("   🕒 Total pipeline time: %s\n", time.Since(start))
 }

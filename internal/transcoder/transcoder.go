@@ -14,18 +14,12 @@ import (
 	"github.com/dotsoulja/dotgo-transcode/internal/scaler"
 )
 
-// Transcode orchestrates the transcoding process for a given media file.
-// It accepts a validated TranscodeProfile and extracted MediaInfo,
-// then concurrently transcodes each target resolution using goroutines.
-// Each variant is processed independently, and results are aggregated.
-//
-// This function does not segment or mux; it focuses on resolution variants.
-// Segmenting and manifest generation are handled in later phases.
-//
-// Output structure:
-//
-//	media/output/<slug>/<slug>_<resolution>_<bitrate>.mp4
+// Transcode orchestrates resolution-aware transcoding for a given media file.
+// It filters out variants that exceed source resolution, then concurrently
+// transcodes each allowed variant. If a resolution matches the source exactly,
+// the original file is copied into the output directory and marked as passthrough.
 func Transcode(profile *TranscodeProfile, media *analyzer.MediaInfo) (*TranscodeResult, error) {
+	// Validate input/output paths and ensure output directory exists
 	if err := validatePaths(profile.InputPath, profile.OutputDir); err != nil {
 		return nil, NewTranscoderError(
 			"validation", "path_check", profile.InputPath, profile.OutputDir,
@@ -33,6 +27,7 @@ func Transcode(profile *TranscodeProfile, media *analyzer.MediaInfo) (*Transcode
 		)
 	}
 
+	// Derive slug from input filename and create output subdirectory
 	baseName := filepath.Base(profile.InputPath)
 	slug := strings.TrimSuffix(baseName, filepath.Ext(baseName))
 	slugDir := filepath.Join(profile.OutputDir, slug)
@@ -44,6 +39,7 @@ func Transcode(profile *TranscodeProfile, media *analyzer.MediaInfo) (*Transcode
 		)
 	}
 
+	// Initialize result container
 	result := &TranscodeResult{
 		InputPath: profile.InputPath,
 		OutputDir: slugDir,
@@ -52,21 +48,73 @@ func Transcode(profile *TranscodeProfile, media *analyzer.MediaInfo) (*Transcode
 		Profile:   profile,
 	}
 
+	// Filter out resolutions that exceed source media height
+	allowed := []string{}
+	for _, res := range profile.Resolutions {
+		_, h, err := scaler.DimensionsForLabel(res)
+		if err != nil {
+			log.Printf("⚠️ Unknown resolution label: %s — skipping", res)
+			continue
+		}
+		if h <= media.Height {
+			allowed = append(allowed, res)
+		} else {
+			log.Printf("🚫 Skipping %s — source resolution (%dp) too low", res, media.Height)
+		}
+	}
+
+	// Log resolution filtering summary
+	log.Printf("\n📋 Profile requested %d variants: %v", len(profile.Resolutions), profile.Resolutions)
+	log.Printf("🎞️ Source resolution: %dx%d", media.Width, media.Height)
+	log.Printf("✅ Proceeding with %d allowed variants: %v\n", len(allowed), allowed)
+
+	// Detect and handle passthrough variant before launching goroutines
+	filtered := []string{}
+	for _, res := range allowed {
+		width, height, err := scaler.DimensionsForLabel(res)
+		if err != nil {
+			continue
+		}
+		if width == media.Width && height == media.Height {
+			bitrate := profile.Bitrate[res]
+			outputFilename := fmt.Sprintf("%s_%s_%skbps_passthrough.mp4", slug, res, bitrate)
+			outputPath := filepath.Join(slugDir, outputFilename)
+
+			if err := copyFile(profile.InputPath, outputPath); err != nil {
+				result.Success = false
+				result.Errors = append(result.Errors, NewTranscoderError(
+					"filesystem", "copy_passthrough", profile.InputPath, outputPath,
+					"failed to copy source file for passthrough variant", nil, 0, err,
+				))
+			} else {
+				result.Variants = append(result.Variants, ResolutionVariant{
+					Width:          width,
+					Height:         height,
+					Bitrate:        bitrate,
+					ScaleFlag:      "passthrough",
+					OutputFilename: outputFilename,
+				})
+				log.Printf("📦 Passthrough variant copied for %s (%dx%d @ %s)", res, width, height, bitrate)
+			}
+		} else {
+			filtered = append(filtered, res)
+		}
+	}
+
+	// Track seen variants to avoid duplicates
 	seen := make(map[string]bool)
-	var mu sync.Mutex // protects result and seen
+	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	log.Printf("🚀 Starting concurrent transcoding for %d variants...", len(profile.Resolutions))
+	log.Printf("🚀 Starting concurrent transcoding for %d variants...", len(filtered))
 	start := time.Now()
 
-	for _, res := range profile.Resolutions {
+	for _, res := range filtered {
 		wg.Add(1)
 		go func(res string) {
 			defer wg.Done()
 
 			bitrate := profile.Bitrate[res]
-			outputFilename := fmt.Sprintf("%s_%s_%skbps.mp4", slug, res, bitrate)
-			outputPath := filepath.Join(slugDir, outputFilename)
 			key := fmt.Sprintf("%s_%s", res, bitrate)
 
 			mu.Lock()
@@ -78,6 +126,15 @@ func Transcode(profile *TranscodeProfile, media *analyzer.MediaInfo) (*Transcode
 			seen[key] = true
 			mu.Unlock()
 
+			width, height, err := scaler.DimensionsForLabel(res)
+			if err != nil {
+				log.Printf("⚠️ Unknown resolution label: %s — using source dimensions", res)
+				width = media.Width
+				height = media.Height
+			}
+
+			outputFilename := fmt.Sprintf("%s_%s_%skbps.mp4", slug, res, bitrate)
+			outputPath := filepath.Join(slugDir, outputFilename)
 			cmd := buildFFmpegCommand(profile, res)
 			cmd[len(cmd)-1] = outputPath
 
@@ -93,13 +150,6 @@ func Transcode(profile *TranscodeProfile, media *analyzer.MediaInfo) (*Transcode
 				))
 				mu.Unlock()
 				return
-			}
-
-			width, height, err := scaler.DimensionsForLabel(res)
-			if err != nil {
-				log.Printf("⚠️ Unknown resolution label: %s - using source dimensions", res)
-				width = media.Width
-				height = media.Height
 			}
 
 			mu.Lock()

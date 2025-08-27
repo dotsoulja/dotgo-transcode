@@ -2,6 +2,7 @@ package transcoder
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -23,11 +24,14 @@ func validatePaths(input, output string) error {
 }
 
 // buildFFmpegCommand constructs the ffmpeg command for a given resolution.
-// It conditionally injects hardware acceleration flags based on platform and profile.
+// Injects hardware acceleration flags if enabled and platform supports it.
+// Final output path is injected as the last argument.
 func buildFFmpegCommand(profile *TranscodeProfile, res string) []string {
+	// Sanitize input filename for output naming
 	base := strings.TrimSuffix(filepath.Base(profile.InputPath), filepath.Ext(profile.InputPath))
 	safeBase := strings.ReplaceAll(base, " ", "_")
 
+	// Parse bitrate string (e.g. "3000k") into integer
 	bitrateStr := profile.Bitrate[res]
 	bitrateInt := parseBitrateKbps(bitrateStr)
 	if bitrateInt == 0 {
@@ -36,20 +40,22 @@ func buildFFmpegCommand(profile *TranscodeProfile, res string) []string {
 		bitrateInt = 2000
 	}
 
+	// Construct output filename and path
 	outputFilename := fmt.Sprintf("%s_%s_%dkbps.%s", safeBase, res, bitrateInt, profile.Container)
 	outputPath := filepath.Join(profile.OutputDir, outputFilename)
 
-	// Determine video codec based on profile and platform
+	// Determine video codec, optionally override for hardware acceleration
 	videoCodec := profile.VideoCodec
 	if profile.UseHardwareAccel && isMacOS() && strings.EqualFold(videoCodec, "h264") {
 		videoCodec = "h264_videotoolbox"
 		log.Printf("🍎 Using VideoToolbox hardware acceleration for %s", res)
 	}
 
+	// Build ffmpeg command with scale filter and codec settings
 	return []string{
 		"ffmpeg",
 		"-i", profile.InputPath,
-		"-vf", fmt.Sprintf("scale=-2:%s", strings.TrimSuffix(res, "p")),
+		"-vf", fmt.Sprintf("scale=-2:%s", strings.TrimSuffix(res, "p")), // height-driven scaling
 		"-c:v", videoCodec,
 		"-b:v", bitrateStr,
 		"-c:a", profile.AudioCodec,
@@ -59,6 +65,7 @@ func buildFFmpegCommand(profile *TranscodeProfile, res string) []string {
 }
 
 // parseBitrateKbps converts a bitrate string like "3000k" to an integer in kbps.
+// Returns 0 if parsing fails.
 func parseBitrateKbps(bitrate string) int {
 	bitrate = strings.ToLower(strings.TrimSpace(bitrate))
 	bitrate = strings.TrimSuffix(bitrate, "k")
@@ -73,6 +80,33 @@ func parseBitrateKbps(bitrate string) int {
 }
 
 // isMacOS returns true if the current platform is macOS.
+// Used to conditionally enable VideoToolbox acceleration.
 func isMacOS() bool {
 	return strings.Contains(strings.ToLower(runtime.GOOS), "darwin")
+}
+
+// copyFile performs a byte-for-byte copy of the source file to the destination.
+// Used for passthrough variants where transcoding is skipped.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %w", err)
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return fmt.Errorf("failed to copy file contents: %w", err)
+	}
+
+	if err := out.Sync(); err != nil {
+		return fmt.Errorf("failed to flush file to disk: %w", err)
+	}
+
+	return nil
 }

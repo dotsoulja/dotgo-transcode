@@ -1,3 +1,6 @@
+// Package segmenter handles adaptive segmentation of transcoded media.
+// It slices each resolution variant into HLS or DASH segments, aligning
+// segment boundaries to keyframes when needed for ABR resilience.
 package segmenter
 
 import (
@@ -12,32 +15,39 @@ import (
 	"github.com/dotsoulja/dotgo-transcode/internal/transcoder"
 )
 
-// SegmentMedia performs adaptive segmentation of transcoded media variants.
-// It uses ffmpeg to slice each variant into HLS or DASH segments, aligning
-// segment boundaries to keyframes when possible for ABR resilience.
+// SegmentMedia performs segmentation of transcoded media variants into HLS or DASH format.
+// It uses ffmpeg to slice each variant into segments, optionally aligning segment boundaries
+// to keyframes for adaptive bitrate (ABR) safety.
 //
-// If SegmentLength is not explicitly set in the profile, this function defaults
-// to using the average keyframe interval extracted from analyzer.MediaInfo.
+// Segment length is determined by the TranscodeProfile:
+//   - If SegmentLength > 0, that value is used directly.
+//   - If SegmentLength == 0, the function falls back to the keyframe interval from MediaInfo.
 //
-// Output structure:
+// This function assumes that MediaInfo has already been extracted once upstream (e.g. in main.go)
+// and is passed in to avoid redundant analysis.
+//
+// Output structure per variant:
 //
 //	media/output/<slug>/<resolution>/
 //	  ├── segment_000.ts
 //	  └── <resolution>.m3u8
-func SegmentMedia(result *transcoder.TranscodeResult, format string) (*SegmentResult, error) {
+func SegmentMedia(result *transcoder.TranscodeResult, format string, media *analyzer.MediaInfo) (*SegmentResult, error) {
 	if result == nil || len(result.Variants) == 0 {
 		return nil, NewSegmenterError("validate", "no variants to segment", nil)
 	}
 
+	// Initialize result container
 	segResult := &SegmentResult{
 		OutputDir: result.OutputDir,
 		Format:    format,
 		Success:   true,
+		Media:     media,
 	}
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
+	// Segment each resolution variant concurrently
 	for _, variant := range result.Variants {
 		wg.Add(1)
 		go func(variant transcoder.ResolutionVariant) {
@@ -58,23 +68,22 @@ func SegmentMedia(result *transcoder.TranscodeResult, format string) (*SegmentRe
 				return
 			}
 
-			// Analyze media to extract keyframe interval and timestamps
-			mediaInfo, err := analyzer.AnalyzeMedia(inputPath)
-			if err != nil {
-				log.Printf("⚠️ Failed to analyze media for %s: %v", inputPath, err)
-			}
-
-			// Determine segment length
+			// Determine segment length based on profile or keyframe interval
 			segmentLength := result.Profile.SegmentLength
-			if segmentLength == 0 && mediaInfo != nil && mediaInfo.KeyframeInterval > 0 {
-				segmentLength = int(mediaInfo.KeyframeInterval + 0.5) // round up
+			if segmentLength == 0 && media != nil && media.KeyframeInterval > 0 {
+				segmentLength = int(media.KeyframeInterval + 0.5) // round up
 				log.Printf("⏱️ Using keyframe-aligned segment length: %ds for %s", segmentLength, label)
+			} else if segmentLength > 0 {
+				log.Printf("📐 Using configured segment length: %ds for %s", segmentLength, label)
+			} else {
+				log.Printf("⚠️ No segment length or keyframe data available—defaulting to 4s for %s", label)
+				segmentLength = 4
 			}
 
 			// Build ffmpeg command with optional keyframe alignment
 			manifestName := fmt.Sprintf("%s.%s", label, manifestExtension(format))
 			manifestPath := filepath.Join(outputDir, manifestName)
-			cmd := buildSegmentCommand(inputPath, outputDir, manifestName, format, segmentLength, mediaInfo)
+			cmd := buildSegmentCommand(inputPath, outputDir, manifestName, format, segmentLength, media)
 
 			log.Printf("📦 Segmenting %s into %s format", variant.OutputFilename, format)
 			if err := executil.RunCommand(cmd); err != nil {
@@ -87,6 +96,7 @@ func SegmentMedia(result *transcoder.TranscodeResult, format string) (*SegmentRe
 				return
 			}
 
+			// Record manifest path
 			mu.Lock()
 			segResult.Manifests = append(segResult.Manifests, manifestPath)
 			mu.Unlock()
