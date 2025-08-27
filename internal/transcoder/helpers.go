@@ -53,6 +53,7 @@ func buildFFmpegCommand(profile *TranscodeProfile, res string) []string {
 		"-c:v", videoCodec,
 		"-b:v", bitrateStr,
 		"-c:a", profile.AudioCodec,
+		"-reset_timestamps", "1",
 		outputPath,
 	}
 }

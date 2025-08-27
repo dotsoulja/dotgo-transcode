@@ -19,5 +19,6 @@ type TranscodeResult struct {
 	Duration  float64             // Duration of input media in seconds
 	Success   bool                // Overall success flag
 	Variants  []ResolutionVariant // Successfully transcoded variants
+	Profile   *TranscodeProfile   // Profile used for transcoding
 	Errors    []*TranscoderError  // Detailed error records (if any)
 }

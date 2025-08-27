@@ -6,6 +6,9 @@
 /bin/
 /dist/
 
+# simple test files
+/tests/
+
 # macOS system files
 .DS_Store
 .AppleDouble

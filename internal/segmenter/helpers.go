@@ -3,36 +3,60 @@
 package segmenter
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/dotsoulja/dotgo-transcode/internal/analyzer"
 )
 
 // buildSegmentCommand constructs the ffmpeg command to segment a media file.
-// Supports HLS and DASH formats with browser-friendly flags and naming conventions.
-func buildSegmentCommand(inputPath, outputDir, manifestName, format string) []string {
+// Supports HLS and DASH formats and injects keyframe alignment logic when
+// MediaInfo is available. This ensures ABR-safe segment boundaries.
+//
+// Parameters:
+//     - inputPath: full path to input media file
+//     - outputDir: directory to write segments and manifest
+//     - manifestName: filename of the manifest (e.g. "720p.m3u8")
+//     - format: "hls" or "dash"
+//     - segmentLength: desired segment duration in seconds
+//     - media: optional MediaInfo for keyframe-aware alignment
+
+func buildSegmentCommand(
+	inputPath, outputDir, manifestName, format string,
+	segmentLength int, media *analyzer.MediaInfo,
+) []string {
+	segLen := fmt.Sprintf("%d", segmentLength)
+
+	// Optional keyframe alignment expression
+	var forceKeyframes []string
+	if media != nil && media.KeyframeInterval > 0 {
+		expr := fmt.Sprintf("expr:gte(t,n_forced*%.2f)", media.KeyframeInterval)
+		forceKeyframes = []string{"-force_key_frames", expr}
+	}
 	switch strings.ToLower(format) {
 	case "hls":
-		return []string{
+		return append([]string{
 			"ffmpeg",
 			"-i", inputPath,
 			"-c", "copy",
 			"-f", "hls",
-			"-hls_time", "4",
+			"-hls_time", segLen,
 			"-hls_playlist_type", "vod",
 			"-hls_segment_filename", filepath.Join(outputDir, "segment_%03d.ts"),
-			filepath.Join(outputDir, manifestName),
-		}
+		}, append(forceKeyframes, filepath.Join(outputDir, manifestName))...)
+
 	case "dash":
-		return []string{
+		return append([]string{
 			"ffmpeg",
 			"-i", inputPath,
 			"-c", "copy",
 			"-f", "dash",
-			"-seg_duration", "4",
+			"-seg_duration", segLen,
 			"-use_timeline", "1",
 			"-use_template", "1",
-			filepath.Join(outputDir, manifestName),
-		}
+		}, append(forceKeyframes, filepath.Join(outputDir, manifestName))...)
+
 	default:
 		return []string{"echo", "unsupported format"}
 	}

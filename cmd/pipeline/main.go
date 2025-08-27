@@ -41,7 +41,7 @@ func main() {
 	fmt.Printf("\n🧠 MediaInfo: Duration=%.2fs, Width=%d, Height=%d, Bitrate=%dkbps\n",
 		media.Duration, media.Width, media.Height, media.Bitrate)
 
-	// Simulate client context
+	// Client context (no simulation)
 	ctx := scaler.ClientContext{
 		DeviceType:      "desktop",
 		BandwidthKbps:   6000,
@@ -56,18 +56,6 @@ func main() {
 		log.Fatalf("❌ Failed to select initial resolution: %v", err)
 	}
 	fmt.Printf("\n🚀 Initial resolution selected: %s\n", initialPreset.Preset.LabelWithDimensions())
-
-	// Simulate playback drop
-	ctx.BandwidthKbps = 1800
-	ctx.RecentFailures = 4
-	adjusted := scaler.AdjustResolution(initialPreset.Preset, ctx)
-	fmt.Printf("📉 Bandwidth dropped. Adjusted resolution: %s\n", adjusted.LabelWithDimensions())
-
-	// Simulate recovery
-	ctx.BandwidthKbps = 6000
-	ctx.RecentFailures = 0
-	recovered := scaler.AdjustResolution(adjusted, ctx)
-	fmt.Printf("📈 Network recovered. Resolution bumped back to: %s\n", recovered.LabelWithDimensions())
 
 	// Transcode
 	fmt.Println("\n🎞️ Starting transcoding...")
@@ -113,4 +101,17 @@ func main() {
 		log.Fatalf("❌ Manifest generation failed: %v", err)
 	}
 	fmt.Printf("📜 Master manifest generated at: %s\n", manifestPath)
+
+	// Final Segment Length report
+	log.Printf("📏 Final Segment Length for %s: %ds (source: %s)", label, segmentLength,
+		func() string {
+			switch {
+			case profile.SegmentLength > 0:
+				return "profile"
+			case media != nil && media.KeyframeInterval > 0:
+				return "analyzer (keyframe interval)"
+			default:
+				return "default fallback"
+			}
+		}())
 }

@@ -3,6 +3,7 @@ package transcoder
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -101,8 +102,18 @@ func validateProfile(p TranscodeProfile) error {
 	if p.Container == "" {
 		return fmt.Errorf("missing container format")
 	}
-	if p.SegmentLength <= 0 {
-		return fmt.Errorf("segment_length must be a positive integer")
+
+	// Validate and interpret segment length
+	switch {
+	case p.SegmentLength < 0:
+		return fmt.Errorf("segment_length must be zero or a positive integer")
+
+	case p.SegmentLength == 0:
+		log.Println("📼 segment_length not set in config—using keyframe interval for segmentation")
+
+	default:
+		log.Printf("📐 Using configured segment_length: %ds", p.SegmentLength)
 	}
+
 	return nil
 }

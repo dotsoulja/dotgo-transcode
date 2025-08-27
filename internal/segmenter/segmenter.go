@@ -7,14 +7,17 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/dotsoulja/dotgo-transcode/internal/analyzer"
 	"github.com/dotsoulja/dotgo-transcode/internal/executil"
 	"github.com/dotsoulja/dotgo-transcode/internal/transcoder"
 )
 
-// SegmentMedia performs media segmentation for adaptive streaming.
-// It accepts a TranscodeResult and segments each variant into chunks
-// using ffmpeg with HLS or DASH flags. Returns a SegmentResult with
-// manifest paths and error metadata.
+// SegmentMedia performs adaptive segmentation of transcoded media variants.
+// It uses ffmpeg to slice each variant into HLS or DASH segments, aligning
+// segment boundaries to keyframes when possible for ABR resilience.
+//
+// If SegmentLength is not explicitly set in the profile, this function defaults
+// to using the average keyframe interval extracted from analyzer.MediaInfo.
 //
 // Output structure:
 //
@@ -44,6 +47,7 @@ func SegmentMedia(result *transcoder.TranscodeResult, format string) (*SegmentRe
 			label := LabelFromFilename(variant.OutputFilename)
 			outputDir := filepath.Join(result.OutputDir, label)
 
+			// Create output directory for segments
 			if err := os.MkdirAll(outputDir, os.ModePerm); err != nil {
 				mu.Lock()
 				segResult.Success = false
@@ -54,9 +58,23 @@ func SegmentMedia(result *transcoder.TranscodeResult, format string) (*SegmentRe
 				return
 			}
 
+			// Analyze media to extract keyframe interval and timestamps
+			mediaInfo, err := analyzer.AnalyzeMedia(inputPath)
+			if err != nil {
+				log.Printf("⚠️ Failed to analyze media for %s: %v", inputPath, err)
+			}
+
+			// Determine segment length
+			segmentLength := result.Profile.SegmentLength
+			if segmentLength == 0 && mediaInfo != nil && mediaInfo.KeyframeInterval > 0 {
+				segmentLength = int(mediaInfo.KeyframeInterval + 0.5) // round up
+				log.Printf("⏱️ Using keyframe-aligned segment length: %ds for %s", segmentLength, label)
+			}
+
+			// Build ffmpeg command with optional keyframe alignment
 			manifestName := fmt.Sprintf("%s.%s", label, manifestExtension(format))
 			manifestPath := filepath.Join(outputDir, manifestName)
-			cmd := buildSegmentCommand(inputPath, outputDir, manifestName, format)
+			cmd := buildSegmentCommand(inputPath, outputDir, manifestName, format, segmentLength, mediaInfo)
 
 			log.Printf("📦 Segmenting %s into %s format", variant.OutputFilename, format)
 			if err := executil.RunCommand(cmd); err != nil {

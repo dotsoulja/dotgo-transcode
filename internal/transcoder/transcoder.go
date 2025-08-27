@@ -49,6 +49,7 @@ func Transcode(profile *TranscodeProfile, media *analyzer.MediaInfo) (*Transcode
 		OutputDir: slugDir,
 		Duration:  media.Duration,
 		Success:   true,
+		Profile:   profile,
 	}
 
 	seen := make(map[string]bool)
