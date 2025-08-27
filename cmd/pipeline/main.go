@@ -102,16 +102,4 @@ func main() {
 	}
 	fmt.Printf("📜 Master manifest generated at: %s\n", manifestPath)
 
-	// Final Segment Length report
-	log.Printf("📏 Final Segment Length for %s: %ds (source: %s)", label, segmentLength,
-		func() string {
-			switch {
-			case profile.SegmentLength > 0:
-				return "profile"
-			case media != nil && media.KeyframeInterval > 0:
-				return "analyzer (keyframe interval)"
-			default:
-				return "default fallback"
-			}
-		}())
 }
