@@ -2,7 +2,6 @@ package transcoder
 
 import (
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -83,30 +82,4 @@ func parseBitrateKbps(bitrate string) int {
 // Used to conditionally enable VideoToolbox acceleration.
 func isMacOS() bool {
 	return strings.Contains(strings.ToLower(runtime.GOOS), "darwin")
-}
-
-// copyFile performs a byte-for-byte copy of the source file to the destination.
-// Used for passthrough variants where transcoding is skipped.
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return fmt.Errorf("failed to open source file: %w", err)
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return fmt.Errorf("failed to create destination file: %w", err)
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, in); err != nil {
-		return fmt.Errorf("failed to copy file contents: %w", err)
-	}
-
-	if err := out.Sync(); err != nil {
-		return fmt.Errorf("failed to flush file to disk: %w", err)
-	}
-
-	return nil
 }

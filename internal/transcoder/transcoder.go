@@ -16,8 +16,8 @@ import (
 
 // Transcode orchestrates resolution-aware transcoding for a given media file.
 // It filters out variants that exceed source resolution, then concurrently
-// transcodes each allowed variant. If a resolution matches the source exactly,
-// the original file is copied into the output directory and marked as passthrough.
+// transcodes each allowed variant. All variants are encoded to ensure uniform
+// segment timing and consistent GOP structure.
 func Transcode(profile *TranscodeProfile, media *analyzer.MediaInfo) (*TranscodeResult, error) {
 	// Validate input/output paths and ensure output directory exists
 	if err := validatePaths(profile.InputPath, profile.OutputDir); err != nil {
@@ -68,48 +68,15 @@ func Transcode(profile *TranscodeProfile, media *analyzer.MediaInfo) (*Transcode
 	log.Printf("🎞️ Source resolution: %dx%d", media.Width, media.Height)
 	log.Printf("✅ Proceeding with %d allowed variants: %v\n", len(allowed), allowed)
 
-	// Detect and handle passthrough variant before launching goroutines
-	filtered := []string{}
-	for _, res := range allowed {
-		width, height, err := scaler.DimensionsForLabel(res)
-		if err != nil {
-			continue
-		}
-		if width == media.Width && height == media.Height {
-			bitrate := profile.Bitrate[res]
-			outputFilename := fmt.Sprintf("%s_%s_%skbps_passthrough.mp4", slug, res, bitrate)
-			outputPath := filepath.Join(slugDir, outputFilename)
-
-			if err := copyFile(profile.InputPath, outputPath); err != nil {
-				result.Success = false
-				result.Errors = append(result.Errors, NewTranscoderError(
-					"filesystem", "copy_passthrough", profile.InputPath, outputPath,
-					"failed to copy source file for passthrough variant", nil, 0, err,
-				))
-			} else {
-				result.Variants = append(result.Variants, ResolutionVariant{
-					Width:          width,
-					Height:         height,
-					Bitrate:        bitrate,
-					ScaleFlag:      "passthrough",
-					OutputFilename: outputFilename,
-				})
-				log.Printf("📦 Passthrough variant copied for %s (%dx%d @ %s)", res, width, height, bitrate)
-			}
-		} else {
-			filtered = append(filtered, res)
-		}
-	}
-
 	// Track seen variants to avoid duplicates
 	seen := make(map[string]bool)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 
-	log.Printf("🚀 Starting concurrent transcoding for %d variants...", len(filtered))
+	log.Printf("🚀 Starting concurrent transcoding for %d variants...", len(allowed))
 	start := time.Now()
 
-	for _, res := range filtered {
+	for _, res := range allowed {
 		wg.Add(1)
 		go func(res string) {
 			defer wg.Done()
