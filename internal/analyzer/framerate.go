@@ -8,7 +8,7 @@ import (
 
 // extractFramerate runs ffprobe to retrieve the raw frame rate string (e.g. "30000/1001")
 // from the primary video stream, then parses it into a float64 value.
-// This is critical for segment alignment and playback smoothness
+// This is important for segment alignment and playback smoothness
 func extractFramerate(path string) (float64, error) {
 	cmd := exec.Command(
 		"ffprobe",

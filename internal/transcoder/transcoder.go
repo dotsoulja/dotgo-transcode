@@ -12,6 +12,7 @@ import (
 	"github.com/dotsoulja/dotgo-transcode/internal/analyzer"
 	"github.com/dotsoulja/dotgo-transcode/internal/executil"
 	"github.com/dotsoulja/dotgo-transcode/internal/scaler"
+	"github.com/dotsoulja/dotgo-transcode/internal/utils/metadata"
 )
 
 // Transcode orchestrates resolution-aware transcoding for a given media file.
@@ -46,6 +47,11 @@ func Transcode(profile *TranscodeProfile, media *analyzer.MediaInfo) (*Transcode
 		Duration:  media.Duration,
 		Success:   true,
 		Profile:   profile,
+	}
+
+	// Save duration to json for frontend consumption
+	if err := metadata.WriteMetadata(slugDir, profile.SegmentLength, media.Duration); err != nil {
+		log.Printf("❌ Failed to write metadata.json: %v", err)
 	}
 
 	// Filter out resolutions that exceed source media height
@@ -100,7 +106,7 @@ func Transcode(profile *TranscodeProfile, media *analyzer.MediaInfo) (*Transcode
 				height = media.Height
 			}
 
-			outputFilename := fmt.Sprintf("%s_%s_%skbps.mp4", slug, res, bitrate)
+			outputFilename := fmt.Sprintf("%s_%s_%sbps.mp4", slug, res, bitrate)
 			outputPath := filepath.Join(slugDir, outputFilename)
 			cmd := buildFFmpegCommand(profile, res)
 			cmd[len(cmd)-1] = outputPath

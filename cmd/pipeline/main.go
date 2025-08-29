@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"log"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/dotsoulja/dotgo-transcode/internal/analyzer"
@@ -10,6 +12,7 @@ import (
 	"github.com/dotsoulja/dotgo-transcode/internal/scaler"
 	"github.com/dotsoulja/dotgo-transcode/internal/segmenter"
 	"github.com/dotsoulja/dotgo-transcode/internal/transcoder"
+	"github.com/dotsoulja/dotgo-transcode/internal/utils/thumbnailer"
 )
 
 func main() {
@@ -93,6 +96,15 @@ func main() {
 		for _, e := range segResult.Errors {
 			fmt.Printf("   ❌ [%s] %s\n", e.Op, e.Msg)
 		}
+	}
+
+	// 🖼️ Generating thumbnails...
+	fmt.Println("\n🖼️ Generating thumbnails...")
+	basename := filepath.Base(profile.InputPath)                 // "thelostboys.mp4"
+	name := strings.TrimSuffix(basename, filepath.Ext(basename)) // "thelostboys"
+
+	if err := thumbnailer.GenerateThumbnails(*media, *result, name); err != nil {
+		log.Printf("❌ Thumbnail generation failed: %v", err)
 	}
 
 	// Generate master manifest from segmented variants
