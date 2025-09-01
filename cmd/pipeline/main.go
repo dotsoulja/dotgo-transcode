@@ -28,14 +28,15 @@ func main() {
 	}
 
 	fmt.Println("\n🎬 Loaded TranscodeProfile:")
-	fmt.Printf("   📁 InputPath:     %s\n", profile.InputPath)
-	fmt.Printf("   📂 OutputDir:     %s\n", profile.OutputDir)
-	fmt.Printf("   🎞️ VideoCodec:    %s\n", profile.VideoCodec)
-	fmt.Printf("   🔊 AudioCodec:    %s\n", profile.AudioCodec)
-	fmt.Printf("   📦 Container:     %s\n", profile.Container)
-	fmt.Printf("   ⏱️ SegmentLength: %d\n", profile.SegmentLength)
-	fmt.Printf("   📐 TargetRes:     %v\n", profile.Resolutions)
-	fmt.Printf("   📊 Bitrate:       %v\n", profile.Bitrate)
+	fmt.Printf("   📁 InputPath:        %s\n", profile.InputPath)
+	fmt.Printf("   📂 OutputDir:        %s\n", profile.OutputDir)
+	fmt.Printf("   🎞️ VideoCodec:       %s\n", profile.VideoCodec)
+	fmt.Printf("   🔊 AudioCodec:       %s\n", profile.AudioCodec)
+	fmt.Printf("   📦 Container:        %s\n", profile.Container)
+	fmt.Printf("   ⏱️ SegmentLength:    %d\n", profile.SegmentLength)
+	fmt.Printf("   📐 TargetRes:        %v\n", profile.Resolutions)
+	fmt.Printf("   📊 Bitrate:          %v\n", profile.Bitrate)
+	fmt.Printf("   🔧 PreserveManifest: %v\n", profile.PreserveManifest)
 
 	// Analyze input media once (shared across pipeline)
 	media, err := analyzer.AnalyzeMedia(profile.InputPath)
@@ -109,7 +110,7 @@ func main() {
 
 	// Generate master manifest from segmented variants
 	fmt.Println("\n🧾 Generating master manifest...")
-	manifestPath, err := manifester.GenerateMasterManifest(segResult)
+	manifestPath, err := manifester.GenerateMasterManifest(segResult, profile.PreserveManifest)
 	if err != nil {
 		log.Fatalf("❌ Manifest generation failed: %v", err)
 	}
