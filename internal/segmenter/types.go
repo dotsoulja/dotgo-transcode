@@ -11,7 +11,7 @@ type SegmentResult struct {
 	Format    string              // "hls" or "dash"
 	Success   bool                // Overall success flag
 	Manifests []string            // Paths to generated manifest files
-	Errors    []SegmenterError    // Detailed error records
+	Errors    []*SegmenterError   // Detailed error records
 	Media     *analyzer.MediaInfo // Optional metadata extracted during segmentation
 
 }

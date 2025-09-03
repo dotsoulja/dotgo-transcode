@@ -61,7 +61,7 @@ func SegmentMedia(result *transcoder.TranscodeResult, format string, media *anal
 			if err := os.MkdirAll(outputDir, os.ModePerm); err != nil {
 				mu.Lock()
 				segResult.Success = false
-				segResult.Errors = append(segResult.Errors, *NewSegmenterError(
+				segResult.Errors = append(segResult.Errors, NewSegmenterError(
 					"filesystem", fmt.Sprintf("failed to create segment dir for %s", label), err,
 				))
 				mu.Unlock()
@@ -89,7 +89,7 @@ func SegmentMedia(result *transcoder.TranscodeResult, format string, media *anal
 			if err := executil.RunCommand(cmd); err != nil {
 				mu.Lock()
 				segResult.Success = false
-				segResult.Errors = append(segResult.Errors, *NewSegmenterError(
+				segResult.Errors = append(segResult.Errors, NewSegmenterError(
 					"segment", fmt.Sprintf("failed to segment %s", variant.OutputFilename), err,
 				))
 				mu.Unlock()
