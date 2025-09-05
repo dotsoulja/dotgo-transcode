@@ -23,14 +23,3 @@ type ffprobeFormat struct {
 	Duration string `json:"duration"` // in seconds
 	BitRate  string `json:"bit_rate"` // in bits per second
 }
-
-// ffprobeFrame represents a single decoded frame, used for keyframe analysis.
-type ffprobeFrame struct {
-	KeyFrame int             `json:"key_frame"` // 1 if keyframe
-	PTS      FlexibleFloat64 `json:"pts_time"`  // timestamp in seconds
-}
-
-// ffprobeFramesOutput wraps the list of frames returned by ffprobe.
-type ffprobeFramesOutput struct {
-	Frames []ffprobeFrame `json:"frames"`
-}

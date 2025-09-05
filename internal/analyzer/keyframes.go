@@ -1,61 +1,90 @@
 package analyzer
 
 import (
-	"bytes"
+	"bufio"
 	"encoding/json"
 	"os/exec"
+	"time"
 )
 
-// extractKeyframes runs ffprobe to retrieve all video frames,
-// filters for keyframes, and calculates the average interval between them.
-// This is essential for segment alignment in adaptive streaming.
-// Accepts an AnalyzerLogger for structured logging and optional progress tracking.
+// extractKeyframes streams ffprobe output to identify keyframes in real time.
+// It parses frame-level metadata from stderr, filters for keyframes, and calculates
+// the average interval between them. Progress is emitted via the AnalyzerLogger.
+//
+// This version avoids buffering delays by reading ffprobe output line-by-line
+// and throttles progress updates to acoid flooding the terminal.
 func extractKeyframes(path string, logger AnalyzerLogger) ([]float64, float64, error) {
-	logger.LogStage("keyframes", "Running ffprobe to extract frame-level metadata")
+	logger.LogStage("keyframes", "Streaming ffprobe frame metadata")
+
 	cmd := exec.Command(
 		"ffprobe",
-		"-v", "error",
+		"-v,", "error",
 		"-select_streams", "v",
 		"-show_frames",
-		"-of", "json",
+		"of", "json",
 		path,
 	)
 
-	var out bytes.Buffer
-	cmd.Stdout = &out
-
-	if err := cmd.Run(); err != nil {
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
 		logger.LogError("keyframes", err)
 		return nil, 0, &AnalyzerError{
-			Op:   "exec_ffprobe_keyframes",
+			Op:   "pipe_ffprobe_keyframes",
 			Path: path,
 			Err:  err,
 		}
 	}
 
-	var result ffprobeFramesOutput
-	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+	if err := cmd.Start(); err != nil {
 		logger.LogError("keyframes", err)
 		return nil, 0, &AnalyzerError{
-			Op:   "unmarshal_keyframes",
+			Op:   "start_ffprobe_keyframes",
 			Path: path,
 			Err:  err,
 		}
 	}
-	logger.LogStage("keyframes", "Filtering keyframes and calculating intervals")
 
+	reader := bufio.NewReader(stdout)
 	var timestamps []float64
-	totalFrames := len(result.Frames)
+	var lastEmit time.Time
+	var frameCount int
 
-	for i, frame := range result.Frames {
-		if frame.KeyFrame == 1 {
-			timestamps = append(timestamps, float64(frame.PTS))
+	// Stream and parse JSON objects line-by-line
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			break // EOF or pipe closed
 		}
 
-		// Emit progress every 1000 frames for long videos
-		if i > 0 && i%1000 == 0 {
-			percent := float64(i) / float64(totalFrames) * 100
+		var frame struct {
+			KeyFrame int     `json:"key_frames"`
+			PTS      float64 `json:"pkt_pts_time"`
+		}
+
+		if err := json.Unmarshal([]byte(line), &frame); err != nil {
+			continue // Skip malformed lines
+		}
+
+		frameCount++
+		if frame.KeyFrame == 1 {
+			timestamps = append(timestamps, frame.PTS)
+		}
+
+		// Emit progress every ~2 seconds
+		if time.Since(lastEmit) > 2*time.Second {
+			// Estimate progress based on frame count (approximation)
+			percent := float64(frameCount) / 100000 * 100
 			logger.LogProgress("keyframes", percent)
+			lastEmit = time.Now()
+		}
+	}
+
+	if err := cmd.Wait(); err != nil {
+		logger.LogError("keyframes", err)
+		return nil, 0, &AnalyzerError{
+			Op:   "wait_ffprobe_keyframes",
+			Path: path,
+			Err:  err,
 		}
 	}
 
@@ -71,6 +100,5 @@ func extractKeyframes(path string, logger AnalyzerLogger) ([]float64, float64, e
 	avgInterval := total / float64(len(timestamps)-1)
 
 	logger.LogStage("keyframes", "Keyframe extraction complete")
-
 	return timestamps, avgInterval, nil
 }

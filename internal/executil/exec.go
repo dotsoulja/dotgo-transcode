@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // RunCommand executes a shell command using os/exec.
@@ -22,33 +23,56 @@ func RunCommand(cmd []string) error {
 	return execCmd.Run()
 }
 
-// RunCommandWithProgress executes a shell command and streams stderr for progress
+// RunCommandWithProgress executes a shell command and streams stderr output to extract
+// real-time progress information. It parses lines containing "time=" to estimate
+// completion percentage based on the total media duration.
+//
+// This function is concurrency-safe and designed to emit progress updates at controlled
+// intervals using the provided onProgress callback. It avoids flooding the terminal by
+// throttling updates.
 func RunCommandWithProgress(cmd []string, duration float64, onProgress func(percent float64)) error {
 	log.Printf("🚀 Executing command with progress: %s", strings.Join(cmd, " "))
 	execCmd := exec.Command(cmd[0], cmd[1:]...)
 
+	// Open stderr pipe for streaming ffmpeg output
 	stderr, err := execCmd.StderrPipe()
 	if err != nil {
 		return fmt.Errorf("failed to get stderr pipe: %w", err)
 	}
 
+	// Start the command execution
 	if err := execCmd.Start(); err != nil {
 		return fmt.Errorf("failed to start command: %w", err)
 	}
 
+	// Use bufio.Reader for immediate line reads (avoids Scanner buffering delays)
+	reader := bufio.NewReader(stderr)
+	var lastEmit time.Time
+
+	// Stream stderr in a separate goroutine to avoid blocking
 	go func() {
-		scanner := bufio.NewScanner(stderr)
-		for scanner.Scan() {
-			line := scanner.Text()
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				break // EOF or pipe closed
+			}
+
+			// Look for ffmpeg progress lines containing "time="
 			if strings.Contains(line, "time=") {
 				if ts := extractTimestamp(line); ts > 0 && duration > 0 {
 					percent := (ts / duration) * 100
-					onProgress(percent)
+
+					// Emit progress update if at least 2 seconds have passed
+					if time.Since(lastEmit) > 2*time.Second {
+						onProgress(percent)
+						lastEmit = time.Now()
+					}
 				}
 			}
 		}
 	}()
 
+	// Wait for command to complete
 	if err := execCmd.Wait(); err != nil {
 		return fmt.Errorf("command failed: %w", err)
 	}
