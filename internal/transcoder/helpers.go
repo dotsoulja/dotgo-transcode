@@ -6,8 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
+
+	"github.com/dotsoulja/dotgo-transcode/internal/utils/helpers"
 )
 
 // validatePaths checks that input and output paths are accessible.
@@ -32,7 +33,7 @@ func buildFFmpegCommand(profile *TranscodeProfile, variant Variant) []string {
 
 	// Parse bitrate string (e.g. "3000k") into integer
 	bitrateStr := variant.Bitrate
-	bitrateInt := parseBitrateKbps(bitrateStr)
+	bitrateInt := helpers.ParseBitrateKbps(bitrateStr)
 	if bitrateInt == 0 {
 		log.Printf("⚠️ Bitrate parsing failed for %s: %q. Using fallback bitrate.", variant.Resolution, bitrateStr)
 		bitrateStr = "2000k"
@@ -61,21 +62,6 @@ func buildFFmpegCommand(profile *TranscodeProfile, variant Variant) []string {
 		"-reset_timestamps", "1",
 		outputPath,
 	}
-}
-
-// parseBitrateKbps converts a bitrate string like "3000k" to an integer in kbps.
-// Returns 0 if parsing fails.
-func parseBitrateKbps(bitrate string) int {
-	bitrate = strings.ToLower(strings.TrimSpace(bitrate))
-	bitrate = strings.TrimSuffix(bitrate, "k")
-	if bitrate == "" {
-		return 0
-	}
-	val, err := strconv.Atoi(bitrate)
-	if err != nil {
-		return 0
-	}
-	return val
 }
 
 // isMacOS returns true if the current platform is macOS.

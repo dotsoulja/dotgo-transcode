@@ -13,6 +13,7 @@ import (
 	"github.com/dotsoulja/dotgo-transcode/internal/analyzer"
 	"github.com/dotsoulja/dotgo-transcode/internal/executil"
 	"github.com/dotsoulja/dotgo-transcode/internal/transcoder"
+	"github.com/dotsoulja/dotgo-transcode/internal/utils/helpers"
 )
 
 // SegmentMedia performs segmentation of transcoded media variants into HLS or DASH format.
@@ -28,9 +29,9 @@ import (
 //
 // Output structure per variant:
 //
-//	media/output/<slug>/<resolution>/
+//	media/output/<slug>/<resolution>_<bitrate>kbps/
 //	  ├── segment_000.ts
-//	  └── <resolution>.m3u8
+//	  └── <resolution>_<bitrate>.m3u8
 func SegmentMedia(result *transcoder.TranscodeResult, format string, media *analyzer.MediaInfo) (*SegmentResult, error) {
 	if result == nil || len(result.Variants) == 0 {
 		return nil, NewSegmenterError("validate", "no variants to segment", nil)
@@ -54,7 +55,16 @@ func SegmentMedia(result *transcoder.TranscodeResult, format string, media *anal
 			defer wg.Done()
 
 			inputPath := filepath.Join(result.OutputDir, variant.OutputFilename)
-			label := LabelFromFilename(variant.OutputFilename)
+
+			// Normalize bitrate string (e.g. "3000k" -> "3000kbps")
+			bitrateInt := helpers.ParseBitrateKbps(variant.Bitrate)
+			bitrateLabel := "unknown"
+			if bitrateInt > 0 {
+				bitrateLabel = fmt.Sprintf("%dkbps", bitrateInt)
+			}
+
+			// Construct directory label using resolution and normalized bitrate
+			label := fmt.Sprintf("%dp_%s", variant.Height, bitrateLabel)
 			outputDir := filepath.Join(result.OutputDir, label)
 
 			// Create output directory for segments
@@ -71,26 +81,26 @@ func SegmentMedia(result *transcoder.TranscodeResult, format string, media *anal
 			// Determine segment length based on profile or keyframe interval
 			segmentLength := result.Profile.SegmentLength
 			if segmentLength == 0 && media != nil && media.KeyframeInterval > 0 {
-				segmentLength = int(media.KeyframeInterval + 0.5) // round up
-				log.Printf("⏱️ Using keyframe-aligned segment length: %ds for %s", segmentLength, label)
+				segmentLength = int(media.KeyframeInterval + 0.5) // round up to nearest second
+				log.Printf("⏰ Using keyframe-aligned segment length: %ds for %s", segmentLength, label)
 			} else if segmentLength > 0 {
 				log.Printf("📐 Using configured segment length: %ds for %s", segmentLength, label)
 			} else {
-				log.Printf("⚠️ No segment length or keyframe data available—defaulting to 4s for %s", label)
+				log.Printf("⚠️ No segment length or keyframe data available, defaulting to 4s for %s", label)
 				segmentLength = 4
 			}
 
-			// Build ffmpeg command with optional keyframe alignment
+			// Build ffmpeg command for segmentation
 			manifestName := fmt.Sprintf("%s.%s", label, manifestExtension(format))
 			manifestPath := filepath.Join(outputDir, manifestName)
-			cmd := buildSegmentCommand(inputPath, outputDir, manifestName, format, segmentLength, media)
+			cmd := buildSegmentCommand(inputPath, outputDir, manifestPath, format, segmentLength, media)
 
-			log.Printf("📦 Segmenting %s into %s format", variant.OutputFilename, format)
+			log.Printf("🔪 Segmenting %s into %s format", variant.OutputFilename, format)
 			if err := executil.RunCommand(cmd); err != nil {
 				mu.Lock()
 				segResult.Success = false
 				segResult.Errors = append(segResult.Errors, NewSegmenterError(
-					"segment", fmt.Sprintf("failed to segment %s", variant.OutputFilename), err,
+					"segment", fmt.Sprintf("failed to segment %s", label), err,
 				))
 				mu.Unlock()
 				return
