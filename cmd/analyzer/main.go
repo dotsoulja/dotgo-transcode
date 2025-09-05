@@ -6,9 +6,11 @@ import (
 	"path/filepath"
 
 	"github.com/dotsoulja/dotgo-transcode/internal/analyzer"
+	"github.com/dotsoulja/dotgo-transcode/internal/utils/logging"
 )
 
 func main() {
+	logger := &logging.UnifiedLogger{}
 	files := []string{
 		"media/thelostboys.mp4",
 		"media/1917.mp4",
@@ -23,7 +25,7 @@ func main() {
 			continue
 		}
 
-		info, err := analyzer.AnalyzeMedia(absPath)
+		info, err := analyzer.AnalyzeMedia(absPath, logger)
 		if err != nil {
 			log.Printf("❌ Error analyzing %s: %v\n", f, err)
 			continue

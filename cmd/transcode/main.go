@@ -7,9 +7,11 @@ import (
 	"github.com/dotsoulja/dotgo-transcode/internal/analyzer"
 	"github.com/dotsoulja/dotgo-transcode/internal/scaler"
 	"github.com/dotsoulja/dotgo-transcode/internal/transcoder"
+	"github.com/dotsoulja/dotgo-transcode/internal/utils/logging"
 )
 
 func main() {
+	logger := &logging.UnifiedLogger{}
 	// Use a single high-quality movie and profile
 	profileName := "sample_profile.json"
 	inputMovie := "media/thelostboys.mp4"
@@ -28,11 +30,16 @@ func main() {
 	fmt.Printf("   🔊 AudioCodec:    %s\n", profile.AudioCodec)
 	fmt.Printf("   📦 Container:     %s\n", profile.Container)
 	fmt.Printf("   ⏱️ SegmentLength: %d\n", profile.SegmentLength)
-	fmt.Printf("   📐 TargetRes:     %v\n", profile.Resolutions)
-	fmt.Printf("   📊 Bitrate:       %v\n", profile.Bitrate)
+	fmt.Printf("   🔧 PreserveManifest: %v\n", profile.PreserveManifest)
+
+	// Print variants
+	fmt.Println("   🎯 Variants:")
+	for i, v := range profile.Variants {
+		fmt.Printf("    • [%d] %s @ %s\n", i, v.Resolution, v.Bitrate)
+	}
 
 	// Analyze media
-	media, err := analyzer.AnalyzeMedia(profile.InputPath)
+	media, err := analyzer.AnalyzeMedia(profile.InputPath, logger)
 	if err != nil {
 		log.Fatalf("❌ Failed to analyze media: %v", err)
 	}
@@ -69,7 +76,7 @@ func main() {
 
 	// Transcode using recovered resolution
 	fmt.Println("\n🎞️ Starting transcoding...")
-	result, err := transcoder.Transcode(profile, media)
+	result, err := transcoder.Transcode(profile, media, logger)
 	if err != nil {
 		log.Fatalf("❌ Transcoding failed: %v", err)
 	}

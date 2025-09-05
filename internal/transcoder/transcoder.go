@@ -19,9 +19,12 @@ import (
 // It filters out variants that exceed source resolution, then concurrently
 // transcodes each allowed variant. All variants are encoded to ensure uniform
 // segment timing and consistent GOP structure.
-func Transcode(profile *TranscodeProfile, media *analyzer.MediaInfo) (*TranscodeResult, error) {
+// Accepts a TranscodeLogger for structured, stage-aware logging.
+func Transcode(profile *TranscodeProfile, media *analyzer.MediaInfo, logger TranscodeLogger) (*TranscodeResult, error) {
 	// Validate input/output paths and ensure output directory exists
+	logger.LogStage("init", "Validating input/output paths")
 	if err := validatePaths(profile.InputPath, profile.OutputDir); err != nil {
+		logger.LogError("validation", err)
 		return nil, NewTranscoderError(
 			"validation", "path_check", profile.InputPath, profile.OutputDir,
 			"invalid input or output path", nil, 0, err,
@@ -34,6 +37,7 @@ func Transcode(profile *TranscodeProfile, media *analyzer.MediaInfo) (*Transcode
 	slugDir := filepath.Join(profile.OutputDir, slug)
 
 	if err := os.MkdirAll(slugDir, os.ModePerm); err != nil {
+		logger.LogError("filesystem", err)
 		return nil, NewTranscoderError(
 			"filesystem", "mkdir", profile.InputPath, slugDir,
 			"failed to create slug directory", nil, 0, err,
@@ -51,28 +55,27 @@ func Transcode(profile *TranscodeProfile, media *analyzer.MediaInfo) (*Transcode
 
 	// Save duration to json for frontend consumption
 	if err := metadata.WriteMetadata(slugDir, profile.SegmentLength, media.Duration); err != nil {
-		log.Printf("❌ Failed to write metadata.json: %v", err)
+		logger.LogError("metadata", err)
 	}
 
 	// Filter out resolutions that exceed source media height
-	allowed := []string{}
-	for _, res := range profile.Resolutions {
-		_, h, err := scaler.DimensionsForLabel(res)
+	allowed := []Variant{}
+	for _, v := range profile.Variants {
+		_, h, err := scaler.DimensionsForLabel(v.Resolution)
 		if err != nil {
-			log.Printf("⚠️ Unknown resolution label: %s — skipping", res)
+			logger.LogVariant(v.Resolution, "⚠️ Unknown resolution label - skipping")
 			continue
 		}
 		if h <= media.Height {
-			allowed = append(allowed, res)
+			allowed = append(allowed, v)
 		} else {
-			log.Printf("🚫 Skipping %s — source resolution (%dp) too low", res, media.Height)
+			logger.LogVariant(v.Resolution, fmt.Sprintf("⛔ Skipping - source resolution (%dp) too low", media.Height))
 		}
 	}
 
 	// Log resolution filtering summary
-	log.Printf("\n📋 Profile requested %d variants: %v", len(profile.Resolutions), profile.Resolutions)
-	log.Printf("🎞️ Source resolution: %dx%d", media.Width, media.Height)
-	log.Printf("✅ Proceeding with %d allowed variants: %v\n", len(allowed), allowed)
+	logger.LogStage("filter", fmt.Sprintf("🎞️ Source resolution: %dx%d", media.Width, media.Height))
+	logger.LogStage("filter", fmt.Sprintf("✅ Proceeding with %d allowed variants", len(allowed)))
 
 	// Track seen variants to avoid duplicates
 	seen := make(map[string]bool)
@@ -82,39 +85,41 @@ func Transcode(profile *TranscodeProfile, media *analyzer.MediaInfo) (*Transcode
 	log.Printf("🚀 Starting concurrent transcoding for %d variants...", len(allowed))
 	start := time.Now()
 
-	for _, res := range allowed {
+	for _, v := range allowed {
 		wg.Add(1)
-		go func(res string) {
+		go func(v Variant) {
 			defer wg.Done()
 
-			bitrate := profile.Bitrate[res]
-			key := fmt.Sprintf("%s_%s", res, bitrate)
+			key := fmt.Sprintf("%s_%s", v.Resolution, v.Bitrate)
 
 			mu.Lock()
 			if seen[key] {
-				log.Printf("⚠️ Skipping duplicate variant: %s", key)
+				logger.LogVariant(key, "⚠️ Skipping duplicate variant")
 				mu.Unlock()
 				return
 			}
 			seen[key] = true
 			mu.Unlock()
 
-			width, height, err := scaler.DimensionsForLabel(res)
+			width, height, err := scaler.DimensionsForLabel(v.Resolution)
 			if err != nil {
-				log.Printf("⚠️ Unknown resolution label: %s — using source dimensions", res)
+				logger.LogVariant(v.Resolution, "⚠️ Unknown resolution label - using source dimensions")
 				width = media.Width
 				height = media.Height
 			}
 
-			outputFilename := fmt.Sprintf("%s_%s_%sbps.mp4", slug, res, bitrate)
+			outputFilename := fmt.Sprintf("%s_%s_%sbps.mp4", slug, v.Resolution, v.Bitrate)
 			outputPath := filepath.Join(slugDir, outputFilename)
-			cmd := buildFFmpegCommand(profile, res)
+			cmd := buildFFmpegCommand(profile, v)
 			cmd[len(cmd)-1] = outputPath
 
-			log.Printf("🔧 Building ffmpeg command for %s (%s)", res, bitrate)
-			log.Printf("🎞️ Transcoding to %s: %s", res, strings.Join(cmd, " "))
+			logger.LogVariant(key, fmt.Sprintf("🔧 Building ffmpeg command: %s", strings.Join(cmd, " ")))
 
-			if err := executil.RunCommand(cmd); err != nil {
+			err = executil.RunCommandWithProgress(cmd, media.Duration, func(percent float64) {
+				logger.LogProgress(key, percent)
+			})
+			if err != nil {
+				logger.LogError("transcode", err)
 				mu.Lock()
 				result.Success = false
 				result.Errors = append(result.Errors, NewTranscoderError(
@@ -129,18 +134,18 @@ func Transcode(profile *TranscodeProfile, media *analyzer.MediaInfo) (*Transcode
 			result.Variants = append(result.Variants, ResolutionVariant{
 				Width:          width,
 				Height:         height,
-				Bitrate:        bitrate,
+				Bitrate:        v.Bitrate,
 				ScaleFlag:      "auto",
 				OutputFilename: outputFilename,
 			})
 			mu.Unlock()
 
-			log.Printf("✅ Transcoding succeeded for %s (%dx%d @ %s)", res, width, height, bitrate)
-		}(res)
+			logger.LogVariant(key, fmt.Sprintf("✅ Transcoding succeeded: (%dx%d @ %s)", width, height, v.Bitrate))
+		}(v)
 	}
 
 	wg.Wait()
-	log.Printf("⏱️ All variants completed in %s", time.Since(start))
+	logger.LogStage("complete", fmt.Sprintf("⏱️ All variants completed in %s", time.Since(start)))
 
 	return result, nil
 }

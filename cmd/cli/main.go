@@ -12,11 +12,13 @@ import (
 	"github.com/dotsoulja/dotgo-transcode/internal/scaler"
 	"github.com/dotsoulja/dotgo-transcode/internal/segmenter"
 	"github.com/dotsoulja/dotgo-transcode/internal/transcoder"
+	"github.com/dotsoulja/dotgo-transcode/internal/utils/logging"
 	"github.com/dotsoulja/dotgo-transcode/internal/utils/thumbnailer"
 )
 
 func main() {
 	start := time.Now()
+	logger := &logging.UnifiedLogger{}
 
 	profileName := "sample_profile.json"
 	streamFormat := "hls" // or "dash"
@@ -34,12 +36,15 @@ func main() {
 	fmt.Printf("   🔊 AudioCodec:       %s\n", profile.AudioCodec)
 	fmt.Printf("   📦 Container:        %s\n", profile.Container)
 	fmt.Printf("   ⏱️ SegmentLength:    %d\n", profile.SegmentLength)
-	fmt.Printf("   📐 TargetRes:        %v\n", profile.Resolutions)
-	fmt.Printf("   📊 Bitrate:          %v\n", profile.Bitrate)
 	fmt.Printf("   🔧 PreserveManifest: %v\n", profile.PreserveManifest)
 
+	fmt.Println("   🎯 Variants:")
+	for i, v := range profile.Variants {
+		fmt.Printf("    • [%d] %s @ %s\n", i, v.Resolution, v.Bitrate)
+	}
+
 	// Analyze input media once (shared across pipeline)
-	media, err := analyzer.AnalyzeMedia(profile.InputPath)
+	media, err := analyzer.AnalyzeMedia(profile.InputPath, logger)
 	if err != nil {
 		log.Fatalf("❌ Failed to analyze media: %v", err)
 	}
@@ -64,7 +69,7 @@ func main() {
 
 	// Transcode media into adaptive variants
 	fmt.Println("\n🎞️ Starting transcoding...")
-	result, err := transcoder.Transcode(profile, media)
+	result, err := transcoder.Transcode(profile, media, logger)
 	if err != nil {
 		log.Fatalf("❌ Transcoding failed: %v", err)
 	}

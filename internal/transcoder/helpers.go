@@ -25,36 +25,36 @@ func validatePaths(input, output string) error {
 // buildFFmpegCommand constructs the ffmpeg command for a given resolution.
 // Injects hardware acceleration flags if enabled and platform supports it.
 // Final output path is injected as the last argument.
-func buildFFmpegCommand(profile *TranscodeProfile, res string) []string {
+func buildFFmpegCommand(profile *TranscodeProfile, variant Variant) []string {
 	// Sanitize input filename for output naming
 	base := strings.TrimSuffix(filepath.Base(profile.InputPath), filepath.Ext(profile.InputPath))
 	safeBase := strings.ReplaceAll(base, " ", "_")
 
 	// Parse bitrate string (e.g. "3000k") into integer
-	bitrateStr := profile.Bitrate[res]
+	bitrateStr := variant.Bitrate
 	bitrateInt := parseBitrateKbps(bitrateStr)
 	if bitrateInt == 0 {
-		log.Printf("⚠️ Bitrate parsing failed for resolution %s: %q. Using fallback bitrate.", res, bitrateStr)
+		log.Printf("⚠️ Bitrate parsing failed for %s: %q. Using fallback bitrate.", variant.Resolution, bitrateStr)
 		bitrateStr = "2000k"
 		bitrateInt = 2000
 	}
 
 	// Construct output filename and path
-	outputFilename := fmt.Sprintf("%s_%s_%dkbps.%s", safeBase, res, bitrateInt, profile.Container)
+	outputFilename := fmt.Sprintf("%s_%s_%dkbps.%s", safeBase, variant.Resolution, bitrateInt, profile.Container)
 	outputPath := filepath.Join(profile.OutputDir, outputFilename)
 
 	// Determine video codec, optionally override for hardware acceleration
 	videoCodec := profile.VideoCodec
 	if profile.UseHardwareAccel && isMacOS() && strings.EqualFold(videoCodec, "h264") {
 		videoCodec = "h264_videotoolbox"
-		log.Printf("🍎 Using VideoToolbox hardware acceleration for %s", res)
+		log.Printf("🍎 Using VideoToolbox hardware acceleration for %s", variant.Resolution)
 	}
 
 	// Build ffmpeg command with scale filter and codec settings
 	return []string{
 		"ffmpeg",
 		"-i", profile.InputPath,
-		"-vf", fmt.Sprintf("scale=-2:%s", strings.TrimSuffix(res, "p")), // height-driven scaling
+		"-vf", fmt.Sprintf("scale=-2:%s", strings.TrimSuffix(variant.Resolution, "p")), // height-driven scaling
 		"-c:v", videoCodec,
 		"-b:v", bitrateStr,
 		"-c:a", profile.AudioCodec,

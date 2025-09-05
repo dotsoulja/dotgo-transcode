@@ -10,6 +10,7 @@ import (
 	"github.com/dotsoulja/dotgo-transcode/internal/scaler"
 	"github.com/dotsoulja/dotgo-transcode/internal/segmenter"
 	"github.com/dotsoulja/dotgo-transcode/internal/transcoder"
+	"github.com/dotsoulja/dotgo-transcode/internal/utils/logging"
 	"github.com/dotsoulja/dotgo-transcode/internal/utils/thumbnailer"
 )
 
@@ -29,6 +30,7 @@ type Report struct {
 
 func Run(config Config) (*Report, error) {
 	var report Report
+	logger := &logging.UnifiedLogger{}
 
 	// Load transcode profile
 	profile, err := transcoder.LoadProfile(config.ProfilePath)
@@ -38,7 +40,7 @@ func Run(config Config) (*Report, error) {
 	report.InputPath = profile.InputPath
 
 	// Analyze input media
-	media, err := analyzer.AnalyzeMedia(profile.InputPath)
+	media, err := analyzer.AnalyzeMedia(profile.InputPath, logger)
 	if err != nil {
 		return nil, wrap("analyze media", err)
 	}
@@ -51,7 +53,7 @@ func Run(config Config) (*Report, error) {
 	_ = initialPreset // optional: log or use for override
 
 	// Transcode media
-	result, err := transcoder.Transcode(profile, media)
+	result, err := transcoder.Transcode(profile, media, logger)
 	if err != nil {
 		return nil, wrap("transcode", err)
 	}

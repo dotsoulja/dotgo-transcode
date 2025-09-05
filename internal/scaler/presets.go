@@ -20,12 +20,6 @@ var StandardPresets = []ResolutionPreset{
 	{
 		Width:      1920,
 		Height:     1080,
-		Label:      "h1080p",
-		MinBitrate: 9000,
-	},
-	{
-		Width:      1920,
-		Height:     1080,
 		Label:      "1080p",
 		MinBitrate: 5000,
 		IsDefault:  true,

@@ -2,7 +2,6 @@ package analyzer
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 )
@@ -30,10 +29,4 @@ func parseRatio(s string) (float64, error) {
 		return 0, fmt.Errorf("failed to parse ratio: %s", s)
 	}
 	return num / den, nil
-}
-
-// logDebug writes debug info to stderr for forensic tracing.
-// Used to log non-fatal parsing failures or fallback logic.
-func logDebug(msg, value string, err error) {
-	fmt.Fprintf(os.Stderr, "[debug] %s: value=%q err=%v\n", msg, value, err)
 }

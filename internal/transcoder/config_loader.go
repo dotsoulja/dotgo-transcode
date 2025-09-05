@@ -89,9 +89,6 @@ func applyDefaults(p *TranscodeProfile) {
 	if p.AudioCodec == "" {
 		p.AudioCodec = "aac"
 	}
-	if p.Bitrate == nil {
-		p.Bitrate = make(map[string]string)
-	}
 }
 
 // validateProfile performs basic sanity checks on required fields.
@@ -103,8 +100,8 @@ func validateProfile(p TranscodeProfile) error {
 	if p.OutputDir == "" {
 		return fmt.Errorf("missing output_dir")
 	}
-	if len(p.Resolutions) == 0 {
-		return fmt.Errorf("target_res must include at least one resolution")
+	if len(p.Variants) == 0 {
+		return fmt.Errorf("variants must include at least one resolution/bitrate pair")
 	}
 	if p.VideoCodec == "" {
 		return fmt.Errorf("missing video_codec")

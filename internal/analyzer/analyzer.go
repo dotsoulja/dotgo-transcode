@@ -11,7 +11,8 @@ import (
 // It runs ffprobe to gather format and stream-level data, then delegates
 // to specialized functions to extract framerate and keyframe information.
 // Returns a fully populated MediaInfo struct or an AnalyzerError.
-func AnalyzeMedia(path string) (*MediaInfo, error) {
+// Accepts an AnalyzerLogger for structured, stage-aware logging.
+func AnalyzeMedia(path string, logger AnalyzerLogger) (*MediaInfo, error) {
 	cmd := exec.Command(
 		"ffprobe",
 		"-v", "error",
@@ -42,19 +43,20 @@ func AnalyzeMedia(path string) (*MediaInfo, error) {
 	}
 
 	info := &MediaInfo{}
+	logger.LogStage("parse", "Parsing duration and bitrate")
 
 	// Parse duration from format section
 	if d, err := parseFloat(probe.Format.Duration); err == nil {
 		info.Duration = d
 	} else {
-		logDebug("parseFloat failed", probe.Format.Duration, err)
+		logger.LogError("parse_duration", err)
 	}
 
 	// Parse overall bitrate from format section
 	if br, err := parseInt(probe.Format.BitRate); err == nil {
 		info.Bitrate = br / 1000 // Convert to kbps
 	} else {
-		logDebug("parseInt failed", probe.Format.BitRate, err)
+		logger.LogError("parse_bitrate", err)
 	}
 
 	// Fallback: use highest stream-level bitrate if format bitrate is missing
@@ -78,6 +80,8 @@ func AnalyzeMedia(path string) (*MediaInfo, error) {
 		}
 	}
 
+	logger.LogStage("streams", "Extracted codec and resolution metadata")
+
 	// Extract framerate and keyframes concurrently
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -86,34 +90,36 @@ func AnalyzeMedia(path string) (*MediaInfo, error) {
 
 	go func() {
 		defer wg.Done()
+		logger.LogStage("framerate", "Extracting framerate")
 		if fr, err := extractFramerate(path); err == nil {
 			mu.Lock()
 			info.Framerate = fr
 			mu.Unlock()
 		} else {
-			logDebug("extractFramerate failed", "", err)
+			logger.LogError("framerate", err)
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
-		if kf, interval, err := extractKeyframes(path); err == nil {
+		if kf, interval, err := extractKeyframes(path, logger); err == nil {
 			mu.Lock()
 			info.Keyframes = kf
 			info.KeyframeInterval = interval
 			mu.Unlock()
 		} else {
-			logDebug("extractKeyframes failed", "", err)
+			logger.LogError("keyframes", err)
 		}
 	}()
 
 	wg.Wait()
+	logger.LogStage("complete", "Media analysis complete")
 
 	return info, nil
 }
 
 // AnalyzeMediaConcurrent is an alias for AnalyzeMedia with concurrency support.
 // This function is retained for semantic clarity and future expansion.
-func AnalyzeMediaConcurrent(path string) (*MediaInfo, error) {
-	return AnalyzeMedia(path)
+func AnalyzeMediaConcurrent(path string, logger AnalyzerLogger) (*MediaInfo, error) {
+	return AnalyzeMedia(path, logger)
 }
