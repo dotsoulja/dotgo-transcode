@@ -54,6 +54,9 @@ func buildFFmpegCommand(profile *TranscodeProfile, variant Variant) []string {
 	// Build ffmpeg command with scale filter and codec settings
 	return []string{
 		"ffmpeg",
+		"-stats",
+		"-loglevel", "info",
+		"-progress", "pipe:2",
 		"-i", profile.InputPath,
 		"-vf", fmt.Sprintf("scale=-2:%s", strings.TrimSuffix(variant.Resolution, "p")), // height-driven scaling
 		"-c:v", videoCodec,

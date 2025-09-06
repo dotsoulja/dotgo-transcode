@@ -2,26 +2,29 @@ package analyzer
 
 import (
 	"bufio"
-	"encoding/json"
+	"log"
 	"os/exec"
-	"time"
+	"strconv"
+	"strings"
 )
 
 // extractKeyframes streams ffprobe output to identify keyframes in real time.
-// It parses frame-level metadata from stderr, filters for keyframes, and calculates
-// the average interval between them. Progress is emitted via the AnalyzerLogger.
+// It parses frame-level metadata from compact output, filters for keyframes,
+// and calculates the average interval between them. Progress is emitted via the AnalyzerLogger.
 //
-// This version avoids buffering delays by reading ffprobe output line-by-line
-// and throttles progress updates to acoid flooding the terminal.
-func extractKeyframes(path string, logger AnalyzerLogger) ([]float64, float64, error) {
+// This version avoids buffering delays by reading ffprobe output line-by-line,
+// uses actual duration and framerate to estimate total frames, and throttles progress
+// updates based on frame count to avoid flooding the terminal. It also logs every keyframe
+// detection attempt and exposes silent failures in timestamp parsing.
+func extractKeyframes(path string, duration, framerate float64, logger AnalyzerLogger) ([]float64, float64, error) {
 	logger.LogStage("keyframes", "Streaming ffprobe frame metadata")
 
 	cmd := exec.Command(
 		"ffprobe",
-		"-v,", "error",
+		"-v", "error",
 		"-select_streams", "v",
-		"-show_frames",
-		"of", "json",
+		"-show_entries", "frame=pts_time,key_frame",
+		"-of", "compact",
 		path,
 	)
 
@@ -46,36 +49,62 @@ func extractKeyframes(path string, logger AnalyzerLogger) ([]float64, float64, e
 
 	reader := bufio.NewReader(stdout)
 	var timestamps []float64
-	var lastEmit time.Time
 	var frameCount int
 
-	// Stream and parse JSON objects line-by-line
+	// Estimate total frames using duration × framerate
+	estimatedTotalFrames := int(duration * framerate)
+	log.Printf("Estimated total frames : %d, by using duration %d and framerate %d", estimatedTotalFrames, int(duration), int(framerate))
+	const emitEveryNFrames = 5000 // Throttle progress updates
+
+	// Stream and parse compact frame lines
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			break // EOF or pipe closed
 		}
 
-		var frame struct {
-			KeyFrame int     `json:"key_frames"`
-			PTS      float64 `json:"pkt_pts_time"`
+		frameCount++ // ✅ Count every frame
+
+		// Optional: log first few raw lines for forensic visibility
+		if frameCount <= 20 {
+			log.Printf("raw ffprobe line: %s", strings.TrimSpace(line))
 		}
 
-		if err := json.Unmarshal([]byte(line), &frame); err != nil {
-			continue // Skip malformed lines
+		// Parse keyframe flag and timestamp
+		var isKeyframe bool
+		var ts *float64
+
+		parts := strings.Split(line, "|")
+		for _, part := range parts {
+			if part == "key_frame=1" {
+				log.Printf("🔍 Detected keyframe line: %s", strings.TrimSpace(line))
+				isKeyframe = true
+			}
+			if strings.HasPrefix(part, "pts_time=") {
+				tsStr := strings.TrimPrefix(part, "pts_time=")
+				tsStr = strings.Trim(tsStr, "|\n\r ") // clean up whitespace
+				parsed, err := strconv.ParseFloat(tsStr, 64)
+				if err == nil {
+					ts = &parsed
+				} else {
+					log.Printf("⚠️ Failed to parse pts_time: '%s' in line: %s", tsStr, strings.TrimSpace(line))
+				}
+			}
 		}
 
-		frameCount++
-		if frame.KeyFrame == 1 {
-			timestamps = append(timestamps, frame.PTS)
+		if isKeyframe {
+			if ts != nil {
+				timestamps = append(timestamps, *ts)
+				log.Printf("✔️ Found keyframe at %.2f seconds", *ts)
+			} else {
+				log.Printf("⚠️ Keyframe detected but missing pts_time: %s", strings.TrimSpace(line))
+			}
 		}
 
-		// Emit progress every ~2 seconds
-		if time.Since(lastEmit) > 2*time.Second {
-			// Estimate progress based on frame count (approximation)
-			percent := float64(frameCount) / 100000 * 100
+		// Emit progress every N frames
+		if frameCount%emitEveryNFrames == 0 && estimatedTotalFrames > 0 {
+			percent := float64(frameCount) / float64(estimatedTotalFrames) * 100
 			logger.LogProgress("keyframes", percent)
-			lastEmit = time.Now()
 		}
 	}
 
@@ -88,17 +117,26 @@ func extractKeyframes(path string, logger AnalyzerLogger) ([]float64, float64, e
 		}
 	}
 
+	log.Printf("🧮 Parsed %d frames, found %d keyframes", frameCount, len(timestamps))
+
+	// Fallback if too few keyframes found
+	if frameCount > 5000 && len(timestamps) < 2 {
+		logger.LogStage("keyframes", "⚠️ Parsed over 5000 frames but found less than 2 keyframes — skipping interval calculation")
+		return timestamps, 0, nil
+	}
+
 	if len(timestamps) < 2 {
 		logger.LogStage("keyframes", "Not enough keyframes found to calculate interval")
 		return timestamps, 0, nil
 	}
 
+	// Calculate average interval between keyframes
 	var total float64
 	for i := 1; i < len(timestamps); i++ {
 		total += timestamps[i] - timestamps[i-1]
 	}
 	avgInterval := total / float64(len(timestamps)-1)
 
-	logger.LogStage("keyframes", "Keyframe extraction complete")
+	logger.LogStage("keyframes", "✅ Keyframe extraction complete")
 	return timestamps, avgInterval, nil
 }

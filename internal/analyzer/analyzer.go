@@ -12,7 +12,12 @@ import (
 // to specialized functions to extract framerate and keyframe information.
 // Returns a fully populated MediaInfo struct or an AnalyzerError.
 // Accepts an AnalyzerLogger for structured, stage-aware logging.
+//
+// This version ensures that extractKeyframes receives accurate duration and framerate
+// for progress estimation and interval calculation. Concurrency is used where safe,
+// and data dependencies are respected to avoid deadlocks.
 func AnalyzeMedia(path string, logger AnalyzerLogger) (*MediaInfo, error) {
+	// Run ffprobe to extract format and stream metadata
 	cmd := exec.Command(
 		"ffprobe",
 		"-v", "error",
@@ -82,14 +87,13 @@ func AnalyzeMedia(path string, logger AnalyzerLogger) (*MediaInfo, error) {
 
 	logger.LogStage("streams", "Extracted codec and resolution metadata")
 
-	// Extract framerate and keyframes concurrently
-	var wg sync.WaitGroup
+	// Extract framerate first (required for keyframe progress estimation)
+	var frWg sync.WaitGroup
 	var mu sync.Mutex
 
-	wg.Add(2)
-
+	frWg.Add(1)
 	go func() {
-		defer wg.Done()
+		defer frWg.Done()
 		logger.LogStage("framerate", "Extracting framerate")
 		if fr, err := extractFramerate(path); err == nil {
 			mu.Lock()
@@ -99,10 +103,19 @@ func AnalyzeMedia(path string, logger AnalyzerLogger) (*MediaInfo, error) {
 			logger.LogError("framerate", err)
 		}
 	}()
+	frWg.Wait()
 
+	// Extract keyframes using known duration and framerate
+	var kfWg sync.WaitGroup
+	kfWg.Add(1)
 	go func() {
-		defer wg.Done()
-		if kf, interval, err := extractKeyframes(path, logger); err == nil {
+		defer kfWg.Done()
+		mu.Lock()
+		duration := info.Duration
+		framerate := info.Framerate
+		mu.Unlock()
+
+		if kf, interval, err := extractKeyframes(path, duration, framerate, logger); err == nil {
 			mu.Lock()
 			info.Keyframes = kf
 			info.KeyframeInterval = interval
@@ -111,10 +124,9 @@ func AnalyzeMedia(path string, logger AnalyzerLogger) (*MediaInfo, error) {
 			logger.LogError("keyframes", err)
 		}
 	}()
+	kfWg.Wait()
 
-	wg.Wait()
 	logger.LogStage("complete", "Media analysis complete")
-
 	return info, nil
 }
 

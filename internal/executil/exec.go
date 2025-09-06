@@ -24,12 +24,11 @@ func RunCommand(cmd []string) error {
 }
 
 // RunCommandWithProgress executes a shell command and streams stderr output to extract
-// real-time progress information. It parses lines containing "time=" to estimate
-// completion percentage based on the total media duration.
+// real-time progress information. It supports both traditional ffmpeg logs (e.g. "time=")
+// and structured progress logs via "-progress pipe:2" (e.g. "out_time=HH:MM:SS.xx").
 //
-// This function is concurrency-safe and designed to emit progress updates at controlled
-// intervals using the provided onProgress callback. It avoids flooding the terminal by
-// throttling updates.
+// Progress updates are emitted via the onProgress callback, throttled to avoid flooding.
+// This function is concurrency-safe and designed for long-running transcoding tasks.
 func RunCommandWithProgress(cmd []string, duration float64, onProgress func(percent float64)) error {
 	log.Printf("🚀 Executing command with progress: %s", strings.Join(cmd, " "))
 	execCmd := exec.Command(cmd[0], cmd[1:]...)
@@ -45,11 +44,10 @@ func RunCommandWithProgress(cmd []string, duration float64, onProgress func(perc
 		return fmt.Errorf("failed to start command: %w", err)
 	}
 
-	// Use bufio.Reader for immediate line reads (avoids Scanner buffering delays)
 	reader := bufio.NewReader(stderr)
 	var lastEmit time.Time
 
-	// Stream stderr in a separate goroutine to avoid blocking
+	// Stream stderr line-by-line to extract progress
 	go func() {
 		for {
 			line, err := reader.ReadString('\n')
@@ -57,12 +55,24 @@ func RunCommandWithProgress(cmd []string, duration float64, onProgress func(perc
 				break // EOF or pipe closed
 			}
 
-			// Look for ffmpeg progress lines containing "time="
+			line = strings.TrimSpace(line)
+
+			// Parse traditional ffmpeg progress lines (e.g. "time=00:01:23.45")
 			if strings.Contains(line, "time=") {
 				if ts := extractTimestamp(line); ts > 0 && duration > 0 {
 					percent := (ts / duration) * 100
+					if time.Since(lastEmit) > 2*time.Second {
+						onProgress(percent)
+						lastEmit = time.Now()
+					}
+				}
+			}
 
-					// Emit progress update if at least 2 seconds have passed
+			// Parse structured progress lines from "-progress pipe:2" (e.g. "out_time=00:01:23.45")
+			if strings.HasPrefix(line, "out_time=") {
+				ts := parseTimestamp(strings.TrimPrefix(line, "out_time="))
+				if ts > 0 && duration > 0 {
+					percent := (ts / duration) * 100
 					if time.Since(lastEmit) > 2*time.Second {
 						onProgress(percent)
 						lastEmit = time.Now()
@@ -90,5 +100,18 @@ func extractTimestamp(line string) float64 {
 	h, _ := strconv.Atoi(matches[1])
 	m, _ := strconv.Atoi(matches[2])
 	s, _ := strconv.ParseFloat(matches[3], 64)
+	return float64(h*3600+m*60) + s
+}
+
+// parseTimestamp converts a timestamp string "HH:MM:SS.xx" into seconds.
+// Used for structured ffmpeg progress output via "-progress pipe:2".
+func parseTimestamp(ts string) float64 {
+	parts := strings.Split(ts, ":")
+	if len(parts) != 3 {
+		return 0
+	}
+	h, _ := strconv.Atoi(parts[0])
+	m, _ := strconv.Atoi(parts[1])
+	s, _ := strconv.ParseFloat(parts[2], 64)
 	return float64(h*3600+m*60) + s
 }
