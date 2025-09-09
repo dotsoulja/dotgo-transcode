@@ -20,6 +20,8 @@ type Config struct {
 	ClientContext scaler.ClientContext
 }
 
+// Report captures the outcome of a full pipeline run.
+// It includes, paths, counts, and any errors encountered.
 type Report struct {
 	InputPath     string
 	ManifestPath  string
@@ -28,6 +30,8 @@ type Report struct {
 	Errors        []error
 }
 
+// Run executes the full pipeline and assumes a valid json/yaml profile located in /profiles directory.
+// It returns a Report summarizing the process and any errors encountered.
 func Run(config Config) (*Report, error) {
 	var report Report
 	logger := &logging.UnifiedLogger{}
@@ -89,6 +93,68 @@ func Run(config Config) (*Report, error) {
 	return &report, nil
 }
 
+// RunPipeline executes the full media pipeline using a provided TranscodeProfile.
+// This function is designed for backend automation, allowing dynamic profile construction
+// per movie slug or media asset. It performs the following steps.
+//
+//  1. Analyze media (duration, resolution, framerate, keyframes)
+//  2. Transcode into resolution-bitrate variants
+//  3. Segment each variant into HLS format (full DASH support coming soon)
+//  4. Generate thumbnails for frontend scrubber (based on segment length)
+//  5. Build master manifest referencing all variants (master.m3u8)
+//
+// In this version, the caller is responsible for constructing the TranscodeProfile with appropriate
+// input/ output paths and variant ladder. This function returns a structured report
+// for logging, retry logic, or frontend introspection.
+func RunPipeline(profile *transcoder.TranscodeProfile) (*Report, error) {
+	logger := &logging.UnifiedLogger{}
+	report := &Report{InputPath: profile.InputPath}
+
+	// Step 1: Analyze media file for metadata
+	media, err := analyzer.AnalyzeMedia(profile.InputPath, logger)
+	if err != nil {
+		return nil, wrap("analyze media", err)
+	}
+
+	// Step 2: Transcode into resolution-bitrate variants
+	result, err := transcoder.Transcode(profile, media, logger)
+	if err != nil {
+		return nil, wrap("transcode", err)
+	}
+	report.VariantCount = len(result.Variants)
+	for _, e := range result.Errors {
+		report.Errors = append(report.Errors, e)
+	}
+
+	// Step 3: Segment each variant into HLS format
+	segResult, err := segmenter.SegmentMedia(result, "hls", media)
+	if err != nil {
+		return nil, wrap("segment", err)
+	}
+	report.ManifestCount = len(segResult.Manifests)
+	for _, e := range segResult.Errors {
+		report.Errors = append(report.Errors, e)
+	}
+
+	// Step 4: Generate thumbnails for scrubber
+	name := strings.TrimSuffix(filepath.Base(profile.InputPath), filepath.Ext(profile.InputPath))
+	if err := thumbnailer.GenerateThumbnails(*media, *result, name); err != nil {
+		report.Errors = append(report.Errors, wrap("thumbnail", err))
+	}
+
+	// Step 5: Build master manifest referencing all variants
+	manifestPath, err := manifester.GenerateMasterManifest(segResult, profile.PreserveManifest)
+	if err != nil {
+		return nil, wrap("manifest", err)
+	}
+	report.ManifestPath = manifestPath
+
+	return report, nil
+
+}
+
+// wrap adds stage context to errors for structured logging and debugging.
+// Used internally to annotate errors from each pipeline phase.
 func wrap(stage string, err error) error {
 	return fmt.Errorf("[%s] %v", stage, err)
 }
