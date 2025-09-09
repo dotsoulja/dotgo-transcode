@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/dotsoulja/dotgo-transcode/internal/segmenter"
@@ -20,7 +21,7 @@ import (
 //
 // References:
 //
-//	<resolution>/<resolution>.m3u8
+//	<resolution_bitrate>/<resolution_bitrate>.m3u8
 func generateHLSMaster(seg *segmenter.SegmentResult) (string, error) {
 	masterPath := filepath.Join(seg.OutputDir, "master.m3u8")
 	f, err := os.Create(masterPath)
@@ -37,8 +38,8 @@ func generateHLSMaster(seg *segmenter.SegmentResult) (string, error) {
 		bitrate := estimateBitrate(label)
 		res := resolutionFromLabel(label)
 
-		// Reference manifest as <resolution>/<resolution>.m3u8
-		uri := filepath.Join(label, filepath.Base(manifest))
+		// Reference manifest as <label>/<label>.m3u8
+		uri := filepath.Join(label, fmt.Sprintf("%s.m3u8", label))
 
 		_, _ = f.WriteString(fmt.Sprintf(
 			"#EXT-X-STREAM-INF:BANDWIDTH=%d,RESOLUTION=%s\n%s\n",
@@ -49,56 +50,50 @@ func generateHLSMaster(seg *segmenter.SegmentResult) (string, error) {
 	return masterPath, nil
 }
 
-// extractLabel pulls resolution label from manifest filename (e.g. "720p.m3u8" -> "720p")
+// extractLabel returns the base filename without extension.
+// Example: "720p_3000kbps.m3u8" -> "720p_3000kbps"
 func extractLabel(path string) string {
 	base := filepath.Base(path)
-	parts := strings.Split(base, ".")
-	if len(parts) > 0 {
-		return parts[0]
-	}
-	return "unknown"
+	return strings.TrimSuffix(base, filepath.Ext(base))
 }
 
-// estimateBitrate returns a rough bandwidth estimate in bits per second based on label.
+// estimateBitrate parses bitrate from label suffix (e.g. "3000kbps") and returns bits per second.
+// Falls back to default if parsing fails.
 func estimateBitrate(label string) int {
-	switch strings.ToLower(label) {
-	case "1080p":
-		return 5000000
-	case "720p":
-		return 3000000
-	case "480p":
-		return 1500000
-	case "360p":
-		return 1000000
-	case "240p":
-		return 500000
-	case "144p":
-		return 150000
-	default:
-		return 1000000
+	parts := strings.Split(label, "_")
+	if len(parts) > 1 {
+		bitrateStr := strings.TrimSuffix(parts[1], "kbps")
+		if kbps, err := strconv.Atoi(bitrateStr); err == nil {
+			return kbps * 1000
+		}
 	}
+	return 1000000 // default 1Mbps
 }
 
-// resolutionFromLabel returns resolution string like "1280x720" for HLS metadata.
+// resolutionFromLabel parses resolution from label prefix (e.g. "720p") and returns as "widthxheight" string.
 func resolutionFromLabel(label string) string {
-	switch strings.ToLower(label) {
-	case "1080p":
-		return "1920x1080"
-	case "720p":
-		return "1280x720"
-	case "480p":
-		return "854x480"
-	case "360p":
-		return "640x360"
-	case "240p":
-		return "426x240"
-	case "144p":
-		return "256x144"
-	default:
-		return "640x360"
+	parts := strings.Split(label, "_")
+	if len(parts) > 0 {
+		switch parts[0] {
+		case "1080p":
+			return "1920x1080"
+		case "720p":
+			return "1280x720"
+		case "480p":
+			return "854x480"
+		case "360p":
+			return "640x360"
+		case "240p":
+			return "426x240"
+		case "144p":
+			return "256x144"
+		}
 	}
+	return "640x360" // default
 }
 
+// reconcileHLSMaster merges existing and new manifests, preserving canonical order.
+// Useful when adding new variants to an existing master.m3u8
 func reconcileHLSMaster(seg *segmenter.SegmentResult) (string, error) {
 	masterPath := filepath.Join(seg.OutputDir, "master.m3u8")
 
@@ -139,11 +134,14 @@ func reconcileHLSMaster(seg *segmenter.SegmentResult) (string, error) {
 	// Sort by canonical resolution order
 	order := []string{"144p", "240p", "360p", "480p", "720p", "1080p", "1440p", "2160p"}
 	var sorted []ManifestMeta
-	for _, label := range order {
-		if entry, ok := merged[label]; ok {
-			sorted = append(sorted, entry)
+	for _, res := range order {
+		for label, entry := range merged {
+			if strings.HasPrefix(label, res) {
+				sorted = append(sorted, entry)
+			}
 		}
 	}
+
 	fmt.Printf("Reconciled entries: %v\n", sorted)
 	// Write reconciled manifest
 	f, err := os.Create(masterPath)
@@ -166,6 +164,8 @@ func reconcileHLSMaster(seg *segmenter.SegmentResult) (string, error) {
 	return masterPath, nil
 }
 
+// parseHLSManifest extracts ManifestMeta entries from raw master.m3u8 content.
+// Used during reconciliation to preserve existing variants.
 func parseHLSManifest(raw string) []ManifestMeta {
 	lines := strings.Split(raw, "\n")
 	var entries []ManifestMeta

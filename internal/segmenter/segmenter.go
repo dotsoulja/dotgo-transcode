@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/dotsoulja/dotgo-transcode/internal/analyzer"
@@ -96,6 +97,7 @@ func SegmentMedia(result *transcoder.TranscodeResult, format string, media *anal
 			cmd := buildSegmentCommand(inputPath, outputDir, manifestPath, format, segmentLength, media)
 
 			log.Printf("🔪 Segmenting %s into %s format", variant.OutputFilename, format)
+			log.Printf("FFmpeg command: %s", strings.Join(cmd, " "))
 			if err := executil.RunCommand(cmd); err != nil {
 				mu.Lock()
 				segResult.Success = false

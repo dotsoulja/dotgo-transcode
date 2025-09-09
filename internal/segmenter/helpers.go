@@ -36,7 +36,7 @@ func buildSegmentCommand(
 	}
 	switch strings.ToLower(format) {
 	case "hls":
-		return append([]string{
+		cmd := []string{
 			"ffmpeg",
 			"-i", inputPath,
 			"-c", "copy",
@@ -44,7 +44,16 @@ func buildSegmentCommand(
 			"-hls_time", segLen,
 			"-hls_playlist_type", "vod",
 			"-hls_segment_filename", filepath.Join(outputDir, "segment_%03d.ts"),
-		}, append(forceKeyframes, filepath.Join(outputDir, manifestName))...)
+		}
+		// Append keyframe flags if present
+		if len(forceKeyframes) > 0 {
+			cmd = append(cmd, forceKeyframes...)
+		}
+
+		// Append output manifest path as final positional argument
+		cmd = append(cmd, manifestName)
+
+		return cmd
 
 	case "dash":
 		return append([]string{
