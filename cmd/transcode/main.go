@@ -39,7 +39,7 @@ func main() {
 	}
 
 	// Analyze media
-	media, err := analyzer.AnalyzeMedia(profile.InputPath, logger)
+	media, err := analyzer.AnalyzeMedia(profile.InputPath, profile.SegmentLength, logger)
 	if err != nil {
 		log.Fatalf("❌ Failed to analyze media: %v", err)
 	}

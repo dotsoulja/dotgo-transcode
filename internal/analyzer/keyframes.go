@@ -65,29 +65,22 @@ func extractKeyframes(path string, duration, framerate float64, logger AnalyzerL
 
 		frameCount++ // ✅ Count every frame
 
-		// Optional: log first few raw lines for forensic visibility
-		if frameCount <= 20 {
-			log.Printf("raw ffprobe line: %s", strings.TrimSpace(line))
-		}
-
 		// Parse keyframe flag and timestamp
 		var isKeyframe bool
 		var ts *float64
 
-		parts := strings.Split(line, "|")
-		for _, part := range parts {
+		for part := range strings.SplitSeq(line, "|") {
 			if part == "key_frame=1" {
-				log.Printf("🔍 Detected keyframe line: %s", strings.TrimSpace(line))
 				isKeyframe = true
 			}
-			if strings.HasPrefix(part, "pts_time=") {
-				tsStr := strings.TrimPrefix(part, "pts_time=")
-				tsStr = strings.Trim(tsStr, "|\n\r ") // clean up whitespace
-				parsed, err := strconv.ParseFloat(tsStr, 64)
+
+			if val, ok := strings.CutPrefix(part, "pts_time="); ok {
+				val = strings.Trim(val, "|\n\r ")
+				parsed, err := strconv.ParseFloat(val, 64)
 				if err == nil {
 					ts = &parsed
 				} else {
-					log.Printf("⚠️ Failed to parse pts_time: '%s' in line: %s", tsStr, strings.TrimSpace(line))
+					log.Printf("⚠️ Failed to parse pts_time '%s' in line: %s", val, strings.TrimSpace(line))
 				}
 			}
 		}
@@ -95,7 +88,6 @@ func extractKeyframes(path string, duration, framerate float64, logger AnalyzerL
 		if isKeyframe {
 			if ts != nil {
 				timestamps = append(timestamps, *ts)
-				log.Printf("✔️ Found keyframe at %.2f seconds", *ts)
 			} else {
 				log.Printf("⚠️ Keyframe detected but missing pts_time: %s", strings.TrimSpace(line))
 			}

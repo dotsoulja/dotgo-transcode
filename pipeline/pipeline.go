@@ -44,7 +44,7 @@ func Run(config Config) (*Report, error) {
 	report.InputPath = profile.InputPath
 
 	// Analyze input media
-	media, err := analyzer.AnalyzeMedia(profile.InputPath, logger)
+	media, err := analyzer.AnalyzeMedia(profile.InputPath, profile.SegmentLength, logger)
 	if err != nil {
 		return nil, wrap("analyze media", err)
 	}
@@ -127,7 +127,7 @@ func RunPipeline(profile *transcoder.TranscodeProfile) (*Report, error) {
 	}
 
 	// Step 1: Analyze media file for metadata
-	media, err := analyzer.AnalyzeMedia(profile.InputPath, logger)
+	media, err := analyzer.AnalyzeMedia(profile.InputPath, profile.SegmentLength, logger)
 	if err != nil {
 		return nil, wrap("analyze media", err)
 	}

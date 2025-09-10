@@ -24,8 +24,8 @@ func main() {
 			log.Printf("❌ Failed to resolve path for %s: %v\n", f, err)
 			continue
 		}
-
-		info, err := analyzer.AnalyzeMedia(absPath, logger)
+		// This will assume segmentLength of 0 to ensure full analysis
+		info, err := analyzer.AnalyzeMedia(absPath, 0, logger)
 		if err != nil {
 			log.Printf("❌ Error analyzing %s: %v\n", f, err)
 			continue
