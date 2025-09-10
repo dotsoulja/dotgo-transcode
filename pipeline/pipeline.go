@@ -110,6 +110,22 @@ func RunPipeline(profile *transcoder.TranscodeProfile) (*Report, error) {
 	logger := &logging.UnifiedLogger{}
 	report := &Report{InputPath: profile.InputPath}
 
+	// Log profile summary before starting
+	fmt.Println("\n🎬 Starting pipeline for:")
+	fmt.Printf("   📂 InputPath:        %s\n", profile.InputPath)
+	fmt.Printf("   📂 OutputDir:        %s\n", profile.OutputDir)
+	fmt.Printf("   🎞️ VideoCodec:       %s\n", profile.VideoCodec)
+	fmt.Printf("   🎵 AudioCodec:       %s\n", profile.AudioCodec)
+	fmt.Printf("   📦 Container:        %s\n", profile.Container)
+	fmt.Printf("   ⏰ SegmentLength:    %d\n", profile.SegmentLength)
+	fmt.Printf("   🔧 PreserveManifest: %v\n", profile.PreserveManifest)
+	fmt.Printf("   🏎️ UseHardwareAccel: %v\n", profile.UseHardwareAccel)
+
+	fmt.Println("   🎯 Variants:")
+	for i, v := range profile.Variants {
+		fmt.Printf("      • [%d] %s @ %s\n", i, v.Resolution, v.Bitrate)
+	}
+
 	// Step 1: Analyze media file for metadata
 	media, err := analyzer.AnalyzeMedia(profile.InputPath, logger)
 	if err != nil {
