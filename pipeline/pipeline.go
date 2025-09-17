@@ -14,6 +14,9 @@ import (
 	"github.com/dotsoulja/dotgo-transcode/internal/utils/thumbnailer"
 )
 
+// Config defines the input parameters for running the pipeline.
+// It includes the path to the transcode profile, and optional client context
+// for resolution presets or adaptive logic.
 type Config struct {
 	ProfilePath   string
 	StreamFormat  string // "hls" or "dash"
@@ -21,12 +24,14 @@ type Config struct {
 }
 
 // Report captures the outcome of a full pipeline run.
-// It includes, paths, counts, and any errors encountered.
+// It includes input/output paths, metadata, and any errors encountered.
 type Report struct {
 	InputPath     string
 	ManifestPath  string
 	VariantCount  int
 	ManifestCount int
+	Duration      float64
+	Thumbnails    []string
 	Errors        []error
 }
 
@@ -48,6 +53,7 @@ func Run(config Config) (*Report, error) {
 	if err != nil {
 		return nil, wrap("analyze media", err)
 	}
+	report.Duration = media.Duration
 
 	// Select resolution preset
 	initialPreset, err := scaler.SelectPreset(media.Width, media.Height, &config.ClientContext)
@@ -79,8 +85,11 @@ func Run(config Config) (*Report, error) {
 	// Generate thumbnails
 	basename := filepath.Base(profile.InputPath)
 	name := strings.TrimSuffix(basename, filepath.Ext(basename))
-	if err := thumbnailer.GenerateThumbnails(*media, *result, name); err != nil {
+	thumbs, err := thumbnailer.GenerateThumbnails(*media, *result, name)
+	if err != nil {
 		report.Errors = append(report.Errors, wrap("thumbnail", err))
+	} else {
+		report.Thumbnails = thumbs
 	}
 
 	// Generate master manifest
@@ -106,6 +115,9 @@ func Run(config Config) (*Report, error) {
 // In this version, the caller is responsible for constructing the TranscodeProfile with appropriate
 // input/ output paths and variant ladder. This function returns a structured report
 // for logging, retry logic, or frontend introspection.
+//
+// Returns:
+//   - A structured Report containing metadata and errors.
 func RunPipeline(profile *transcoder.TranscodeProfile) (*Report, error) {
 	logger := &logging.UnifiedLogger{}
 	report := &Report{InputPath: profile.InputPath}
@@ -131,6 +143,7 @@ func RunPipeline(profile *transcoder.TranscodeProfile) (*Report, error) {
 	if err != nil {
 		return nil, wrap("analyze media", err)
 	}
+	report.Duration = media.Duration
 
 	// Step 2: Transcode into resolution-bitrate variants
 	result, err := transcoder.Transcode(profile, media, logger)
@@ -154,8 +167,11 @@ func RunPipeline(profile *transcoder.TranscodeProfile) (*Report, error) {
 
 	// Step 4: Generate thumbnails for scrubber
 	name := strings.TrimSuffix(filepath.Base(profile.InputPath), filepath.Ext(profile.InputPath))
-	if err := thumbnailer.GenerateThumbnails(*media, *result, name); err != nil {
+	thumbs, err := thumbnailer.GenerateThumbnails(*media, *result, name)
+	if err != nil {
 		report.Errors = append(report.Errors, wrap("thumbnail", err))
+	} else {
+		report.Thumbnails = thumbs
 	}
 
 	// Step 5: Build master manifest referencing all variants

@@ -18,8 +18,12 @@ import (
 //
 // This function assumes that transcoding has already completed and that the
 // output directory contains the expected .mp4 files.
-func GenerateThumbnails(media analyzer.MediaInfo, result transcoder.TranscodeResult, slug string) error {
-	// Step 1: Determine effective segment length
+//
+// Returns:
+//   - A slice of thumbnail filenames (e.g. "thumb_000.jpg", "thumb_004.jpg")
+//   - An error if thumbnail generation fails entirely
+func GenerateThumbnails(media analyzer.MediaInfo, result transcoder.TranscodeResult, slug string) ([]string, error) {
+	// Determine effective segment length
 	effectiveSegmentLength := result.Profile.SegmentLength
 	if effectiveSegmentLength == 0 {
 		if media.KeyframeInterval >= 3.0 {
@@ -30,14 +34,14 @@ func GenerateThumbnails(media analyzer.MediaInfo, result transcoder.TranscodeRes
 		}
 	}
 
-	// Step 2: Generate timestamps
+	// Generate timestamps based on duration and segment length
 	timestamps := GenerateTimestamps(media.Duration, effectiveSegmentLength)
 	if len(timestamps) == 0 {
 		log.Printf("🚫 No valid timestamps generated for slug: %s", slug)
-		return nil
+		return nil, nil
 	}
 
-	// Step 3: Locate highest resolution transcoded variant
+	// Locate highest resolution variant
 	var bitrateStr string
 	for _, v := range result.Variants {
 		if v.Height == media.Height {
@@ -46,32 +50,35 @@ func GenerateThumbnails(media analyzer.MediaInfo, result transcoder.TranscodeRes
 		}
 	}
 	if bitrateStr == "" {
-		return fmt.Errorf("no variant found matching source height: %dp", media.Height)
+		return nil, fmt.Errorf("no variant found matchin source height: %d", media.Height)
 	}
 
-	// Parse bitrate string like "5000k" into int kbps
+	// Parse bitrate string like "5000k" into kbps
 	bitrateKbps, err := parseBitrateKbps(bitrateStr)
 	if err != nil {
-		return fmt.Errorf("invalid bitrate format: %s", bitrateStr)
+		return nil, fmt.Errorf("invalid bitrte format: %s", bitrateStr)
 	}
 
+	// Resolve full path to variant file
 	variantPath, err := GetVariantPath(result.OutputDir, slug, media.Height, bitrateKbps)
 	if err != nil {
-		return fmt.Errorf("failed to locate variant for thumbnail generation: %w", err)
+		return nil, fmt.Errorf("failed to locate variant for thumbnail generation: %w", err)
 	}
 
-	// Step 4: Prepare thumbnails directory
+	// Prepare thumbnails directory
 	thumbDir, err := EnsureThumbnailDir(result.OutputDir)
 	if err != nil {
-		return fmt.Errorf("failed to prepare thumbnails directory: %w", err)
+		return nil, fmt.Errorf("failed to prepare thumbnail directory: %w", err)
 	}
 
-	// Step 5: Generate thumbnails using ffmpeg
+	// Generate thumbnails using ffmpeg
+	var generated []string
 	for _, ts := range timestamps {
 		filename := FormatTimestampFilename(ts)
 		outputPath := filepath.Join(thumbDir, filename)
 
-		cmd := exec.Command("ffmpeg",
+		cmd := exec.Command(
+			"ffmpeg",
 			"-ss", fmt.Sprintf("%.2f", ts),
 			"-i", variantPath,
 			"-frames:v", "1",
@@ -83,10 +90,11 @@ func GenerateThumbnails(media analyzer.MediaInfo, result transcoder.TranscodeRes
 			log.Printf("❌ Failed to generate thumbnail at %.2fs for slug %s: %v", ts, slug, err)
 		} else {
 			log.Printf("✅ Thumbnail generated: %s", outputPath)
+			generated = append(generated, filename)
 		}
 	}
 
-	return nil
+	return generated, nil
 }
 
 // parseBitrateKbps converts a bitrate string like "5000k" to an int (5000)

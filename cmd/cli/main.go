@@ -108,8 +108,8 @@ func main() {
 	fmt.Println("\n🖼️ Generating thumbnails...")
 	basename := filepath.Base(profile.InputPath)                 // "thelostboys.mp4"
 	name := strings.TrimSuffix(basename, filepath.Ext(basename)) // "thelostboys"
-
-	if err := thumbnailer.GenerateThumbnails(*media, *result, name); err != nil {
+	_, err = thumbnailer.GenerateThumbnails(*media, *result, name)
+	if err != nil {
 		log.Printf("❌ Thumbnail generation failed: %v", err)
 	}
 
